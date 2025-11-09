@@ -16,7 +16,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
         jitsiMeet.conferenceActivityType = "org.jitsi.JitsiMeet.ios.conference" // Must match the one defined in Info.plist{}
         jitsiMeet.customUrlScheme = "org.jitsi.meet"
-        jitsiMeet.universalLinkDomains = ["meet.jit.si", "alpha.jitsi.net", "beta.meet.jit.si"]
+        jitsiMeet.universalLinkDomains = ["meet.jit.si", "meet.kolla.click", "beta.meet.jit.si"]
 
         jitsiMeet.defaultConferenceOptions = JitsiMeetConferenceOptions.fromBuilder { builder in
             // For testing configOverrides a room needs to be set

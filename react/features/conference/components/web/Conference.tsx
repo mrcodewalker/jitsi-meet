@@ -1,5 +1,5 @@
 import { throttle } from 'lodash-es';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { WithTranslation } from 'react-i18next';
 import { connect as reactReduxConnect, useDispatch, useSelector, useStore } from 'react-redux';
 
@@ -26,6 +26,7 @@ import { getOverlayToRender } from '../../../overlay/functions.web';
 import ParticipantsPane from '../../../participants-pane/components/web/ParticipantsPane';
 import Prejoin from '../../../prejoin/components/web/Prejoin';
 import { isPrejoinPageVisible } from '../../../prejoin/functions.web';
+import MeetingModeIndicator from '../../../meeting-mode/components/web/MeetingModeIndicator';
 import ReactionAnimations from '../../../reactions/components/web/ReactionsAnimations';
 import { toggleToolboxVisible } from '../../../toolbox/actions.any';
 import { fullScreenChanged, showToolbox } from '../../../toolbox/actions.web';
@@ -35,6 +36,7 @@ import { LAYOUT_CLASSNAMES } from '../../../video-layout/constants';
 import { getCurrentLayout } from '../../../video-layout/functions.any';
 import VisitorsQueue from '../../../visitors/components/web/VisitorsQueue';
 import { showVisitorsQueue } from '../../../visitors/functions';
+import { setupAutoLeaveListeners, handleAutoLeave } from '../../../toolbox/utils/autoLeaveUtils';
 import { init } from '../../actions.web';
 import { maybeShowSuboptimalExperienceNotification } from '../../functions.web';
 import {
@@ -268,6 +270,7 @@ class Conference extends AbstractConference<IProps, any> {
                                 { t('toolbar.accessibilityLabel.heading') }
                             </span>
                             <Toolbox />
+                            <MeetingModeIndicator />
                         </>
                     )}
 
@@ -436,11 +439,30 @@ function _mapStateToProps(state: IReduxState) {
 export default reactReduxConnect(_mapStateToProps)(translate(props => {
     const dispatch = useDispatch();
     const store = useStore();
+    const cleanupRef = useRef<(() => void) | null>(null);
 
     const [ isDragging, setIsDragging ] = useState(false);
 
     const { isOpen: isChatOpen } = useSelector((state: IReduxState) => state['features/chat']);
     const isFileUploadEnabled = useSelector(isFileUploadingEnabled);
+
+    // Set up auto-leave listeners when component mounts
+    useEffect(() => {
+        const cleanup = setupAutoLeaveListeners(() => {
+            console.log('Auto-leave triggered due to page unload/navigation');
+            // Additional cleanup can be done here if needed
+            // The actual leave request is already handled in setupAutoLeaveListeners
+        });
+        
+        cleanupRef.current = cleanup;
+        
+        // Cleanup on unmount
+        return () => {
+            if (cleanupRef.current) {
+                cleanupRef.current();
+            }
+        };
+    }, []);
 
     const handleDragEnter = useCallback((e: React.DragEvent) => {
         e.preventDefault();

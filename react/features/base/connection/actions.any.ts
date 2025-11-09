@@ -116,6 +116,9 @@ export function constructOptions(state: IReduxState) {
     // redux store.
     const options: IOptions = cloneDeep(state['features/base/config']);
 
+    // Force the conference request URL - DISABLED to remove 1-hour time limit
+    // options.conferenceRequestUrl = 'https://meet.kolla.click/conference-request/v1';
+
     const { locationURL, preferVisitor } = state['features/base/connection'];
     const params = parseURLParams(locationURL || '');
     const iceServersOverride = params['iceServers.replace'];

@@ -30,15 +30,15 @@ export const THRESHOLDS = [
     },
     {
         width: 565,
-        order: [ 'microphone', 'camera', 'desktop', 'chat', 'raisehand', 'reactions', 'participants-pane', 'tileview' ]
+        order: [ 'microphone', 'camera', 'desktop', 'meeting-mode', 'chat', 'raisehand', 'reactions', 'participants-pane', 'tileview' ]
     },
     {
         width: 520,
-        order: [ 'microphone', 'camera', 'desktop', 'chat', 'raisehand', 'participants-pane', 'tileview' ]
+        order: [ 'microphone', 'camera', 'desktop', 'meeting-mode', 'chat', 'raisehand', 'participants-pane', 'tileview' ]
     },
     {
         width: 470,
-        order: [ 'microphone', 'camera', 'desktop', 'chat', 'raisehand', 'participants-pane' ]
+        order: [ 'microphone', 'camera', 'desktop', 'meeting-mode', 'chat', 'raisehand', 'participants-pane' ]
     },
     {
         width: 420,
@@ -92,6 +92,7 @@ export const MAIN_TOOLBAR_BUTTONS_PRIORITY = [
     'microphone',
     'camera',
     'desktop',
+    'meeting-mode',
     'chat',
     'raisehand',
     'reactions',
@@ -160,6 +161,7 @@ export const TOOLBAR_BUTTONS: ToolbarButton[] = [
     'linktosalesforce',
     'livestreaming',
     'microphone',
+    'meeting-mode',
     'mute-everyone',
     'mute-video-everyone',
     'participants-pane',

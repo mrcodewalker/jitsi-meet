@@ -28,8 +28,18 @@ const GrantModeratorButton = ({
     const dispatch = useDispatch();
     const localParticipant = useSelector(getLocalParticipant);
     const targetParticipant = useSelector((state: IReduxState) => getParticipantById(state, participantID));
-    const visible = useMemo(() => Boolean(localParticipant?.role === PARTICIPANT_ROLE.MODERATOR)
-        && !isParticipantModerator(targetParticipant), [ isParticipantModerator, localParticipant, targetParticipant ]);
+    const visible = useMemo(() => {
+        const isLocalModerator = Boolean(localParticipant?.role === PARTICIPANT_ROLE.MODERATOR);
+        let isAdmin = false;
+        try {
+            isAdmin = (typeof window !== 'undefined')
+                && window?.localStorage?.getItem('userRole') === 'ADMIN';
+        } catch (e) {
+            isAdmin = false;
+        }
+
+        return isLocalModerator && isAdmin && !isParticipantModerator(targetParticipant);
+    }, [ isParticipantModerator, localParticipant, targetParticipant ]);
 
     const handleClick = useCallback(() => {
         notifyClick?.();

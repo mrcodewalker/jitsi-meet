@@ -76,6 +76,36 @@ import './subscriber';
 const PRIVACY_NOTICE_TIMEOUT = 20 * 1000;
 
 /**
+ * Send message to external API for group chat
+ */
+const sendMessageToAPI = async (message: string) => {
+    try {
+        const meetLink = localStorage.getItem('meetLink');
+        const token = localStorage.getItem('token');
+        
+        if (meetLink && token) {
+            const response = await fetch('https://signal.kolla.click/api/v1/messages/create', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    message,
+                    meetLink,
+                    token
+                })
+            });
+            
+            const result = await response.json();
+            console.log('Message sent to API:', result);
+            return result;
+        }
+    } catch (error) {
+        console.error('Error sending message to API:', error);
+    }
+};
+
+/**
  * Implements the middleware of the chat feature.
  *
  * @param {Store} store - The redux store.
@@ -260,6 +290,8 @@ MiddlewareRegistry.register(store => next => action => {
                     conference.sendPrivateTextMessage(privateMessageRecipient.id, action.message, 'body', isVisitorChatParticipant(privateMessageRecipient));
                     _persistSentPrivateMessage(store, privateMessageRecipient, action.message);
                 } else {
+                    // Send group chat message - call API first, then send to conference
+                    sendMessageToAPI(action.message);
                     conference.sendTextMessage(action.message);
                 }
             }

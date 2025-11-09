@@ -1,5 +1,5 @@
 /* eslint-disable react/jsx-no-bind */
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { connect, useDispatch } from 'react-redux';
 import { makeStyles } from 'tss-react/mui';
@@ -21,7 +21,7 @@ import Input from '../../../base/ui/components/web/Input';
 import { BUTTON_TYPES } from '../../../base/ui/constants.any';
 import isInsecureRoomName from '../../../base/util/isInsecureRoomName';
 import { openDisplayNamePrompt } from '../../../display-name/actions';
-import { isUnsafeRoomWarningEnabled } from '../../../prejoin/functions';
+import { isUnsafeRoomWarningEnabled } from '../../functions.any';
 import {
     joinConference as joinConferenceAction,
     joinConferenceWithoutAudio as joinConferenceWithoutAudioAction,
@@ -33,7 +33,7 @@ import {
     isJoinByPhoneButtonVisible,
     isJoinByPhoneDialogVisible,
     isPrejoinDisplayNameVisible
-} from '../../functions';
+} from '../../functions.any';
 import logger from '../../logger';
 import { hasDisplayName } from '../../utils';
 
@@ -237,9 +237,300 @@ const Prejoin = ({
         () => showDisplayNameField && showErrorOnJoin,
         [ showDisplayNameField, showErrorOnJoin ]);
     const [ showJoinByPhoneButtons, setShowJoinByPhoneButtons ] = useState(false);
+    const [ isCheckingAccess, setIsCheckingAccess ] = useState(false);
+    const [ accessChecked, setAccessChecked ] = useState(false);
+    const [ showInvalidAccessMessage, setShowInvalidAccessMessage ] = useState(false);
+    const [ meetingData, setMeetingData ] = useState<any>(null);
+    const [ attendanceLogId, setAttendanceLogId ] = useState<number | null>(null);
     const { classes } = useStyles();
     const { t } = useTranslation();
     const dispatch = useDispatch();
+
+    /**
+     * Get URL parameters
+     */
+    const getUrlParams = () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        // Derive meetLink from pathname as fallback: e.g. https://host/<meetLink>
+        const pathPart = (window.location.pathname || '/').replace(/^\//, '').split('/')[0] || null;
+        const meetLinkParam = urlParams.get('meetLink');
+        const tokenParam = urlParams.get('token');
+
+        return {
+            meetLink: meetLinkParam || pathPart,
+            token: tokenParam
+        } as { meetLink: string | null; token: string | null };
+    };
+
+    /**
+     * Check meeting access
+     */
+    const checkMeetingAccess = async (meetLink: string, token: string) => {
+        try {
+            setIsCheckingAccess(true);
+            const response = await fetch('https://signal.kolla.click/api/v1/members/check-meeting-access', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    token,
+                    meetLink
+                })
+            });
+
+            const result = await response.json();
+            return result;
+        } catch (error) {
+            console.error('Error checking meeting access:', error);
+            return { success: false, networkError: true } as any;
+        } finally {
+            setIsCheckingAccess(false);
+        }
+    };
+
+    /**
+     * Create attendance log
+     */
+    const createAttendanceLog = async (meetLink: string, token: string, action: 'join' | 'leave') => {
+        try {
+            console.log('Creating attendance log for:', { meetLink, token, action });
+            const response = await fetch('https://signal.kolla.click/api/v1/attendance-logs/create-with-token', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    token,
+                    meetLink,
+                    action
+                })
+            });
+
+            const result = await response.json();
+            console.log('Attendance log created:', result);
+            
+            // Save attendance log ID if successful
+            if (result.success && result.data?.id) {
+                setAttendanceLogId(result.data.id);
+                localStorage.setItem('attendanceLogId', result.data.id.toString());
+            }
+            
+            return result;
+        } catch (error) {
+            console.error('Error creating attendance log:', error);
+            return { success: false, error: error.message };
+        }
+    };
+
+    /**
+     * Leave attendance log
+     */
+    const leaveAttendanceLog = async (id: number, token: string) => {
+        try {
+            console.log('Leaving attendance log for:', { id, token });
+            const response = await fetch(`https://signal.kolla.click/api/v1/attendance-logs/${id}/leave-with-token`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    token
+                })
+            });
+
+            const result = await response.json();
+            console.log('Attendance log leave updated:', result);
+            return result;
+        } catch (error) {
+            console.error('Error leaving attendance log:', error);
+            return { success: false, error: error.message };
+        }
+    };
+
+    /**
+     * Remove token and meetLink from URL and set localStorage
+     */
+    const removeTokenFromUrl = (meetLink: string, token: string) => {
+        // Set localStorage for future use
+        localStorage.setItem('meetLink', meetLink);
+        localStorage.setItem('token', token);
+        
+        // Clean up URL by removing query parameters
+        const url = new URL(window.location.href);
+        url.search = ''; // Remove all query parameters
+        window.history.replaceState({}, '', url.toString());
+    };
+
+    /**
+     * Navigate to external URL with delay
+     */
+    const navigateToExternal = () => {
+        setShowInvalidAccessMessage(true);
+        setTimeout(() => {
+            window.location.href = 'https://meeting.kolla.click/';
+        }, 10000); // 10 seconds delay
+    };
+
+    /**
+     * Check access on component mount
+     */
+    useEffect(() => {
+        const { meetLink, token } = getUrlParams();
+        let effectiveMeetLink = meetLink;
+        let effectiveToken = token;
+        // Consider "fromUrl" true if at least one credential came from URL, so we can clean it up
+        const fromUrl = Boolean(meetLink || token);
+
+        // Debug URL parameters
+        console.log('URL Parameters:', { meetLink, token });
+        console.log('Current URL:', window.location.href);
+        console.log('Search params:', window.location.search);
+
+        // Fallback to localStorage if URL params are missing
+        if (!effectiveMeetLink || !effectiveToken) {
+            const storedMeetLink = localStorage.getItem('meetLink');
+            const storedToken = localStorage.getItem('token');
+
+            // Prefer explicitly provided values over storage
+            effectiveMeetLink = effectiveMeetLink || storedMeetLink;
+            effectiveToken = effectiveToken || storedToken;
+
+            if (!effectiveMeetLink && !effectiveToken) {
+                console.log('Missing parameters - meetLink and token are both absent.');
+                navigateToExternal();
+                return;
+            }
+        }
+
+        const verifyAccess = async () => {
+            // Try up to 3 times on transient errors to avoid kicking the user out on refresh
+            let attempts = 0;
+            let result: any = null;
+            do {
+                attempts++;
+                result = await checkMeetingAccess(effectiveMeetLink as string, effectiveToken as string);
+                console.log(`Access check attempt ${attempts}:`, result);
+                if (result?.success || (result?.data && result?.data?.hasAccess === false)) {
+                    break;
+                }
+                if (result?.networkError) {
+                    await new Promise(res => setTimeout(res, 800));
+                }
+            } while (attempts < 3);
+
+            // Debug logging
+            console.log('Final API Response:', result);
+            console.log('MeetLink:', effectiveMeetLink);
+            console.log('Token:', effectiveToken);
+
+            if (result?.success && result?.data?.hasAccess === true) {
+                console.log('Access granted, setting meeting data:', result.data);
+
+                // Store meeting data
+                setMeetingData(result.data);
+
+                // Set display name from user data if available
+                if (result.data?.user?.name) {
+                    console.log('Setting display name:', result.data.user.name);
+                    dispatchUpdateSettings({
+                        displayName: result.data.user.name
+                    });
+                }
+
+                // Persist user role for authorization checks in-app
+                // Persist meeting-scoped role (used to decide moderator privileges)
+                if (result.data?.meeting?.meetingRole) {
+                    try {
+                        localStorage.setItem('userRole', String(result.data.meeting.meetingRole));
+                    } catch (e) {
+                        console.warn('Unable to persist userRole to localStorage');
+                    }
+                }
+
+                setAccessChecked(true);
+                // Always persist latest values for refresh resilience
+                if (effectiveMeetLink) {
+                    localStorage.setItem('meetLink', effectiveMeetLink as string);
+                }
+                if (effectiveToken) {
+                    localStorage.setItem('token', effectiveToken as string);
+                }
+                // Clean up URL if anything came from URL
+                if (fromUrl && effectiveMeetLink && effectiveToken) {
+                    removeTokenFromUrl(effectiveMeetLink as string, effectiveToken as string);
+                }
+            } else if (result?.success && result?.data?.hasAccess === false) {
+                console.log('Access explicitly denied, navigating to external URL');
+                navigateToExternal();
+            } else {
+                // Transient failure or unknown error: do NOT redirect if we have stored creds
+                console.warn('Access check failed due to network or unknown error, keeping user on page');
+                setAccessChecked(true);
+                // Ensure creds remain in storage
+                localStorage.setItem('meetLink', effectiveMeetLink as string);
+                localStorage.setItem('token', effectiveToken as string);
+            }
+        };
+
+        // Add small delay to ensure component is fully mounted
+        // If we have a meetLink but no token yet, persist meetLink and do not redirect
+        if (effectiveMeetLink && !effectiveToken) {
+            try {
+                localStorage.setItem('meetLink', effectiveMeetLink);
+            } catch (e) { /* noop */ }
+            setAccessChecked(true);
+            return;
+        }
+
+        setTimeout(() => {
+            verifyAccess();
+        }, 100);
+    }, []);
+
+
+    /**
+     * Load attendance log ID from localStorage on component mount
+     */
+    useEffect(() => {
+        const storedAttendanceLogId = localStorage.getItem('attendanceLogId');
+        if (storedAttendanceLogId) {
+            setAttendanceLogId(parseInt(storedAttendanceLogId, 10));
+        }
+    }, []);
+
+    /**
+     * Handle page unload to update leave attendance log
+     */
+    useEffect(() => {
+        const handleBeforeUnload = async () => {
+            const storedAttendanceLogId = localStorage.getItem('attendanceLogId');
+            const token = localStorage.getItem('token');
+            
+            if (storedAttendanceLogId && token) {
+                // Use sendBeacon for reliable delivery during page unload
+                const data = JSON.stringify({ token });
+                
+                if (navigator.sendBeacon) {
+                    navigator.sendBeacon(
+                        `https://signal.kolla.click/api/v1/attendance-logs/${storedAttendanceLogId}/leave-with-token`,
+                        data
+                    );
+                } else {
+                    // Fallback for browsers that don't support sendBeacon
+                    await leaveAttendanceLog(parseInt(storedAttendanceLogId, 10), token);
+                }
+            }
+        };
+
+        // Add event listener for page unload
+        window.addEventListener('beforeunload', handleBeforeUnload);
+
+        // Cleanup function
+        return () => {
+            window.removeEventListener('beforeunload', handleBeforeUnload);
+        };
+    }, []);
 
     /**
      * Handler for the join button.
@@ -247,7 +538,7 @@ const Prejoin = ({
      * @param {Object} e - The synthetic event.
      * @returns {void}
      */
-    const onJoinButtonClick = () => {
+    const onJoinButtonClick = async () => {
         if (showErrorOnJoin) {
             dispatch(openDisplayNamePrompt({
                 onPostSubmit: joinConference,
@@ -257,7 +548,15 @@ const Prejoin = ({
             return;
         }
 
-        logger.info('Prejoin join button clicked.');
+        console.log('Prejoin join button clicked.');
+
+        // Create attendance log before joining
+        const meetLink = localStorage.getItem('meetLink');
+        const token = localStorage.getItem('token');
+        
+        if (meetLink && token) {
+            await createAttendanceLog(meetLink, token, 'join');
+        }
 
         joinConference();
     };
@@ -335,12 +634,21 @@ const Prejoin = ({
      *
      * @returns {void}
      */
-    const onJoinConferenceWithoutAudioKeyPress = (e: React.KeyboardEvent) => {
+    const onJoinConferenceWithoutAudioKeyPress = async (e: React.KeyboardEvent) => {
         if (joinConferenceWithoutAudio
             && (e.key === ' '
                 || e.key === 'Enter')) {
             e.preventDefault();
-            logger.info('Prejoin joinConferenceWithoutAudio dispatched on a key pressed.');
+            console.log('Prejoin joinConferenceWithoutAudio dispatched on a key pressed.');
+            
+            // Create attendance log before joining without audio
+            const meetLink = localStorage.getItem('meetLink');
+            const token = localStorage.getItem('token');
+            
+            if (meetLink && token) {
+                await createAttendanceLog(meetLink, token, 'join');
+            }
+            
             joinConferenceWithoutAudio();
         }
     };
@@ -356,8 +664,17 @@ const Prejoin = ({
             testId: 'prejoin.joinWithoutAudio',
             icon: IconVolumeOff,
             label: t('prejoin.joinWithoutAudio'),
-            onClick: () => {
-                logger.info('Prejoin join conference without audio pressed.');
+            onClick: async () => {
+                console.log('Prejoin join conference without audio pressed.');
+                
+                // Create attendance log before joining without audio
+                const meetLink = localStorage.getItem('meetLink');
+                const token = localStorage.getItem('token');
+                
+                if (meetLink && token) {
+                    await createAttendanceLog(meetLink, token, 'join');
+                }
+                
                 joinConferenceWithoutAudio();
             },
             onKeyPress: onJoinConferenceWithoutAudioKeyPress
@@ -384,9 +701,18 @@ const Prejoin = ({
      * @param {KeyboardEvent} e - Keyboard event.
      * @returns {void}
      */
-    const onInputKeyPress = (e: React.KeyboardEvent) => {
+    const onInputKeyPress = async (e: React.KeyboardEvent) => {
         if (e.key === 'Enter') {
-            logger.info('Dispatching join conference on Enter key press from the prejoin screen.');
+            console.log('Dispatching join conference on Enter key press from the prejoin screen.');
+            
+            // Create attendance log before joining
+            const meetLink = localStorage.getItem('meetLink');
+            const token = localStorage.getItem('token');
+            
+            if (meetLink && token) {
+                await createAttendanceLog(meetLink, token, 'join');
+            }
+            
             joinConference();
         }
     };
@@ -401,12 +727,65 @@ const Prejoin = ({
     }
     const hasExtraJoinButtons = Boolean(extraButtonsToRender.length);
 
+    // Show invalid access message
+    if (showInvalidAccessMessage) {
+        return (
+            <PreMeetingScreen
+                showDeviceStatus = { false }
+                showRecordingWarning = { false }
+                showUnsafeRoomWarning = { false }
+                title = { t('prejoin.joinMeeting') }
+                videoMuted = { !showCameraPreview }
+                videoTrack = { videoTrack }>
+                <div
+                    className = { classes.inputContainer }
+                    data-testid = 'prejoin.screen'>
+                    <div className="access-error-container">
+                        <div className="access-error-title">
+                            ⚠️ Thông tin không hợp lệ
+                        </div>
+                        <p className="access-error-message">
+                            Bạn không có quyền truy cập vào cuộc họp này.
+                        </p>
+                        <p className="access-error-submessage">
+                            Bạn sẽ được chuyển hướng về trang chủ trong 10 giây...
+                        </p>
+                        <div className="countdown-bar">
+                            <div className="countdown-progress"></div>
+                        </div>
+                    </div>
+                </div>
+            </PreMeetingScreen>
+        );
+    }
+
+    // Show loading state while checking access
+    if (isCheckingAccess || !accessChecked) {
+        return (
+            <PreMeetingScreen
+                showDeviceStatus = { false }
+                showRecordingWarning = { false }
+                showUnsafeRoomWarning = { false }
+                title = { meetingData?.meeting?.title || t('prejoin.joinMeeting') }
+                videoMuted = { !showCameraPreview }
+                videoTrack = { videoTrack }>
+                <div
+                    className = { classes.inputContainer }
+                    data-testid = 'prejoin.screen'>
+                    <div style={{ textAlign: 'center', padding: '20px' }}>
+                        <p>{t('prejoin.checkingAccess', 'Đang kiểm tra quyền truy cập...')}</p>
+                    </div>
+                </div>
+            </PreMeetingScreen>
+        );
+    }
+
     return (
         <PreMeetingScreen
             showDeviceStatus = { deviceStatusVisible }
             showRecordingWarning = { showRecordingWarning }
             showUnsafeRoomWarning = { showUnsafeRoomWarning }
-            title = { t('prejoin.joinMeeting') }
+            title = { meetingData?.meeting?.title || t('prejoin.joinMeeting') }
             videoMuted = { !showCameraPreview }
             videoTrack = { videoTrack }>
             <div

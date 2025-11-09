@@ -5,7 +5,7 @@
     "main": "index.tsx",
     "license": "Apache-2.0",
     "author": "",
-    "homepage": "https://jitsi.org",
+    "homepage": "https://meeting.kolla.click/",
     "repository": {
         "type": "git",
         "url": "git+https://github.com/jitsi/jitsi-meet.git"

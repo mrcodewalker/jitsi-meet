@@ -4,8 +4,10 @@ import { useDispatch } from 'react-redux';
 
 import { createToolbarEvent } from '../../../analytics/AnalyticsEvents';
 import { sendAnalytics } from '../../../analytics/functions';
-import { leaveConference } from '../../../base/conference/actions';
+import { leaveConference } from '../../../base/conference/actions.any';
+import { hangup } from '../../../base/connection/actions.web';
 import { BUTTON_TYPES } from '../../../base/ui/constants.web';
+import { handleAutoLeave, clearAttendanceData } from '../../utils/autoLeaveUtils';
 
 import { HangupContextMenuItem } from './HangupContextMenuItem';
 
@@ -37,9 +39,25 @@ export const LeaveConferenceButton = (props: IProps) => {
     const { t } = useTranslation();
     const dispatch = useDispatch();
 
-    const onLeaveConference = useCallback(() => {
+    const onLeaveConference = useCallback(async () => {
         sendAnalytics(createToolbarEvent('hangup'));
-        dispatch(leaveConference());
+        
+        try {
+            // Send leave request to attendance log if available
+            await handleAutoLeave();
+            
+            // Call the original hangup function
+            await dispatch(hangup(true));
+            
+            // Navigate to meeting.kolla.click
+            window.location.href = 'https://meeting.kolla.click/';
+            
+        } catch (error) {
+            console.error('Error during leave process:', error);
+            // Fallback: still navigate to meeting.kolla.click
+            clearAttendanceData();
+            window.location.href = 'https://meeting.kolla.click/';
+        }
     }, [ dispatch ]);
 
     return (

@@ -30,7 +30,7 @@ var config = {
 
     hosts: {
         // XMPP domain.
-        domain: 'jitsi-meet.example.com',
+        domain: 'meet.kolla.click',
 
         // When using authentication, domain for guest users.
         // anonymousdomain: 'guest.example.com',
@@ -42,28 +42,44 @@ var config = {
         // focus: 'focus.jitsi-meet.example.com',
 
         // XMPP MUC domain. FIXME: use XEP-0030 to discover it.
-        muc: 'conference.' + subdomain + 'jitsi-meet.example.com',
+        muc: 'conference.meet.kolla.click',
     },
 
     // BOSH URL. FIXME: use XEP-0156 to discover it.
-    bosh: 'https://jitsi-meet.example.com/' + subdir + 'http-bind',
+    bosh: 'https://meet.kolla.click/http-bind',
 
     // Websocket URL (XMPP)
-    websocket: 'wss://jitsi-meet.example.com/' + subdir + 'xmpp-websocket',
+    websocket: 'wss://meet.kolla.click/xmpp-websocket',
+    
+    // Additional connection settings for Docker Jitsi Meet
+    enableRTCStats: false, // Disable RTC stats to reduce connection issues
+    enableLayerSuspension: true, // Enable layer suspension for better performance
+    
+    // BOSH connection settings for better stability
+    boshTimeout: 10000, // 10 seconds BOSH timeout
+    boshRetryCount: 5, // 5 BOSH retry attempts
+    boshRetryInterval: 1000, // 1 second between BOSH retries
 
     // websocketKeepAliveUrl: 'https://jitsi-meet.example.com/' + subdir + '_unlock',
 
     // Whether BOSH should be preferred over WebSocket if both are configured.
-    // preferBosh: false,
+    preferBosh: true, // Use BOSH instead of WebSocket for better compatibility
 
     // The real JID of focus participant - can be overridden here
     // Do not change username - FIXME: Make focus username configurable
     // https://github.com/jitsi/jitsi-meet/issues/7376
-    // focusUserJid: 'focus@auth.jitsi-meet.example.com',
+    focusUserJid: 'focus@auth.meet.kolla.click',
+    
+    // Enable focus component for better connection handling
+    enableFocus: true,
+    
+    // Connection stability settings
+    enableConnectionStability: true,
+    connectionStabilityThreshold: 3, // Number of failed attempts before considering unstable
+    connectionStabilityTimeout: 5000, // 5 seconds timeout for stability check
 
     // Option to send conference requests to jicofo over http (requires nginx rule for it)
-    // conferenceRequestUrl:
-    //   'https://<!--# echo var="http_host" default="jitsi-meet.example.com" -->/' + subdir + 'conference-request/v1',
+    // conferenceRequestUrl: 'https://meet.kolla.click/conference-request/v1', // DISABLED to remove 1-hour time limit
 
     // Options related to the bridge (colibri) data channel
     bridgeChannel: {
@@ -207,7 +223,7 @@ var config = {
 
     // Start calls with audio muted. Unlike the option above, this one is only
     // applied locally. FIXME: having these 2 options is confusing.
-    // startWithAudioMuted: false,
+    startWithAudioMuted: true,
 
     // Enabling it (with #params) will disable local audio output of remote
     // participants and to enable it back a reload is needed.
@@ -525,6 +541,21 @@ var config = {
 
     // Default value for the channel "last N" attribute. -1 for unlimited.
     channelLastN: -1,
+
+    // Connection timeout settings - Unlimited
+    connectionTimeout: 0, // 0 = unlimited
+    keepAliveInterval: 30000,   // 30 seconds
+    
+    // Disable conference time limits
+    conferenceDuration: 0, // 0 = unlimited
+    maxConferenceDuration: 0, // 0 = unlimited
+    
+    // Connection error handling - More aggressive error handling
+    enableConnectionErrorHandling: true,
+    connectionErrorRetryCount: 5, // Increased retry count
+    connectionErrorRetryInterval: 1000, // Reduced retry interval to 1 second
+    maxConnectionErrors: 5, // Maximum connection errors before giving up
+    connectionErrorTimeout: 5000, // 5 seconds timeout for connection errors
 
     // Connection indicators
     // connectionIndicators: {
@@ -1073,8 +1104,13 @@ var config = {
     // If third party requests are disabled, no other server will be contacted.
     // This means avatars will be locally generated and external stats integration
     // will not function.
-    // disableThirdPartyRequests: false,
+    disableThirdPartyRequests: true, // DISABLED to prevent 8x8 API calls in self-hosted setup
 
+    // Connection retry settings - More aggressive retry for better connection
+    connectionRetryCount: 5, // Increased retry count
+    connectionRetryInterval: 1000, // Reduced retry interval to 1 second
+    maxRetries: 5, // Maximum number of retries
+    retryDelay: 1000, // Delay between retries in milliseconds
 
     // Peer-To-Peer mode: used (if enabled) when there are just 2 participants.
     //
@@ -1113,15 +1149,26 @@ var config = {
 
         // The STUN servers that will be used in the peer to peer connections
         stunServers: [
-
-            // { urls: 'stun:jitsi-meet.example.com:3478' },
-            { urls: 'stun:meet-jit-si-turnrelay.jitsi.net:443' },
+            // Use local STUN server or public alternatives instead of Jitsi's
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
+            { urls: 'stun:stun3.l.google.com:19302' },
+            { urls: 'stun:stun4.l.google.com:19302' },
+            // { urls: 'stun:jitsi-meet.example.com:3478' }, // Use your own STUN server
+            // { urls: 'stun:meet-jit-si-turnrelay.jitsi.net:443' }, // DISABLED - Jitsi's STUN server
         ],
+        
+        // Connection timeout settings - Reduced timeouts for faster connection
+        connectionTimeout: 5000, // 5 seconds - reduced from 10
+        iceGatheringTimeout: 3000, // 3 seconds - reduced from 5
+        iceConnectionTimeout: 5000, // 5 seconds for ICE connection
+        iceGatheringTimeout: 3000, // 3 seconds for ICE gathering
     },
 
     analytics: {
         // True if the analytics should be disabled
-        // disabled: false,
+        disabled: true, // DISABLED to prevent 8x8 analytics calls in self-hosted setup
 
         // Matomo configuration:
         // matomoEndpoint: 'https://your-matomo-endpoint/',

@@ -165,7 +165,12 @@ class Watermarks extends Component<IProps, State> {
         if (_showJitsiWatermark) {
             const style = {
                 backgroundImage: `url(${_logoUrl})`,
-                position: _logoLink ? 'static' : 'absolute'
+                position: _logoLink ? 'static' : 'absolute',
+                width: '200px',  // Thay đổi chiều rộng
+                height: '100px', // Thay đổi chiều cao
+                backgroundSize: 'contain', // Đảm bảo logo hiển thị đúng tỷ lệ
+                backgroundRepeat: 'no-repeat',
+                backgroundPosition: 'center'
             } as const;
 
             reactElement = (<div
@@ -201,9 +206,9 @@ class Watermarks extends Component<IProps, State> {
             return (
                 <a
                     className = 'poweredby'
-                    href = 'http://jitsi.org'
+                    href = 'http://meeting.kolla.click/'
                     target = '_new'>
-                    <span>{ t('poweredby') } jitsi.org</span>
+                    <span>{ t('poweredby') } Kolla Meeting</span>
                 </a>
             );
         }

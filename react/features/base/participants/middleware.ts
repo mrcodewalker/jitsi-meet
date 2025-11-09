@@ -37,6 +37,7 @@ import { IJitsiConference } from '../conference/reducer';
 import { SET_CONFIG } from '../config/actionTypes';
 import { getDisableRemoveRaisedHandOnFocus } from '../config/functions.any';
 import { JitsiConferenceEvents } from '../lib-jitsi-meet';
+import { setAudioMuted } from '../media/actions';
 import { VIDEO_TYPE } from '../media/constants';
 import MiddlewareRegistry from '../redux/MiddlewareRegistry';
 import StateListenerRegistry from '../redux/StateListenerRegistry';
@@ -152,8 +153,21 @@ MiddlewareRegistry.register(store => next => action => {
     }
 
     case GRANT_MODERATOR: {
-        const { conference } = store.getState()['features/base/conference'];
+        // Enforce ADMIN-only granting of moderator
+        let isAdmin = false;
+        try {
+            isAdmin = (typeof window !== 'undefined')
+                && window?.localStorage?.getItem('userRole') === 'ADMIN';
+        } catch (e) {
+            isAdmin = false;
+        }
 
+        if (!isAdmin) {
+            // Block the action silently for non-ADMIN users
+            return;
+        }
+
+        const { conference } = store.getState()['features/base/conference'];
         conference?.grantOwner(action.id);
         break;
     }
@@ -287,12 +301,30 @@ MiddlewareRegistry.register(store => next => action => {
     }
 
     case PARTICIPANT_JOINED: {
+        const result = _participantJoinedOrUpdated(store, next, action);
+
         // Do not play sounds when a screenshare or whiteboard participant tile is created for screenshare.
         (!isScreenShareParticipant(action.participant)
             && !isWhiteboardParticipant(action.participant)
         ) && _maybePlaySounds(store, action);
 
-        return _participantJoinedOrUpdated(store, next, action);
+        // Force mute all new participants (including local participant)
+        const { participant } = action;
+        if (participant && !participant.fakeParticipant) {
+            // Force mute local participant
+            if (participant.local) {
+                store.dispatch(setAudioMuted(true, /* ensureTrack */ true));
+            } else {
+                // Force mute remote participant
+                store.dispatch({
+                    type: MUTE_REMOTE_PARTICIPANT,
+                    id: participant.id,
+                    mediaType: MEDIA_TYPE.AUDIO
+                });
+            }
+        }
+
+        return result;
     }
 
     case PARTICIPANT_LEFT: {
@@ -495,6 +527,21 @@ StateListenerRegistry.register(
                     _localRecordingUpdated(store, conference, participant.getId(), Boolean(value)),
                 'raisedHand': (participant: IJitsiParticipant, value: string) =>
                     _raiseHandUpdated(store, conference, participant.getId(), value),
+                'meetingMode': (participant: IJitsiParticipant, value: string) => {
+                    try {
+                        const parsedValue = JSON.parse(value);
+                        store.dispatch(participantUpdated({
+                            conference,
+                            id: participant.getId(),
+                            meetingMode: parsedValue
+                        } as any));
+                        
+                        // Handle meeting mode notifications similar to raise hand
+                        _meetingModeUpdated(store, conference, participant.getId(), parsedValue);
+                    } catch (e) {
+                        console.error('[Meeting Mode] Error parsing value:', e);
+                    }
+                },
                 'region': (participant: IJitsiParticipant, value: string) =>
                     store.dispatch(participantUpdated({
                         conference,
@@ -941,6 +988,46 @@ function _raiseHandUpdated({ dispatch, getState }: IStore, conference: IJitsiCon
 
     dispatch(playSound(RAISE_HAND_SOUND_ID));
 
+}
+
+/**
+ * Handles a meeting mode status update.
+ *
+ * @param {Function} dispatch - The Redux dispatch function.
+ * @param {Object} conference - The conference for which we got an update.
+ * @param {string} participantId - The ID of the participant from which we got an update.
+ * @param {Object} meetingModeData - The meeting mode data with enabled and timestamp.
+ * @returns {void}
+ */
+function _meetingModeUpdated({ dispatch, getState }: IStore, conference: IJitsiConference,
+        participantId: string, meetingModeData: { enabled: boolean; timestamp: number }) {
+    
+    const { enabled } = meetingModeData;
+    const state = getState();
+    const localParticipant = getLocalParticipant(state);
+    
+    // Don't show notification to the person who triggered it
+    if (participantId === localParticipant?.id) {
+        return;
+    }
+    
+    const participantName = getParticipantDisplayName(state, participantId);
+    
+    if (enabled) {
+        // Show notification when meeting mode is enabled
+        dispatch(showNotification({
+            titleKey: 'notify.somebody',
+            title: participantName,
+            descriptionKey: 'notify.meetingModeActive',
+            concatText: true,
+            uid: `meeting-mode-${participantId}`,
+            customActionNameKey: [ 'notify.viewParticipants' ],
+            customActionHandler: [ () => dispatch(openParticipantsPane()) ]
+        }, NOTIFICATION_TIMEOUT_TYPE.LONG));
+        
+        // Play sound notification
+        dispatch(playSound(RAISE_HAND_SOUND_ID));
+    }
 }
 
 /**

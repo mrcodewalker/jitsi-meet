@@ -94,7 +94,44 @@ export function appNavigate(uri?: string) {
  */
 export function maybeRedirectToWelcomePage(options: { feedbackSubmitted?: boolean; showThankYou?: boolean; } = {}) {
     return (dispatch: IStore['dispatch'], getState: IStore['getState']) => {
+        
+        // Send leave attendance log request before any redirect
+        const sendLeaveRequest = async () => {
+            const storedAttendanceLogId = localStorage.getItem('attendanceLogId');
+            const token = localStorage.getItem('token');
+            
+            if (storedAttendanceLogId && token) {
+                try {
+                    console.log('Sending leave request for attendance log:', storedAttendanceLogId);
+                    const response = await fetch(`https://signal.kolla.click/api/v1/attendance-logs/${storedAttendanceLogId}/leave-with-token`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ token })
+                    });
+                    
+                    const result = await response.json();
+                    console.log('Leave request result:', result);
+                } catch (error) {
+                    console.error('Error sending leave request:', error);
+                }
+            }
+        };
 
+        // Send leave request first
+        sendLeaveRequest().finally(() => {
+            // Clear localStorage after sending request
+            localStorage.removeItem('attendanceLogId');
+            localStorage.removeItem('meetLink');
+            localStorage.removeItem('token');
+            
+            // Redirect to meeting.kolla.click instead of original logic
+            window.location.href = 'https://meeting.kolla.click/';
+        });
+
+        // Original logic below (commented out to prevent double redirect)
+        /*
         const {
             enableClosePage
         } = getState()['features/base/config'];
@@ -156,6 +193,7 @@ export function maybeRedirectToWelcomePage(options: { feedbackSubmitted?: boolea
                 },
                 options.showThankYou ? 3000 : 500);
         }
+        */
     };
 }
 

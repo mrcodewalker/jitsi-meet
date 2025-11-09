@@ -63,6 +63,7 @@ import DownloadButton from './components/DownloadButton';
 import HelpButton from './components/HelpButton';
 import AudioSettingsButton from './components/web/AudioSettingsButton';
 import CustomOptionButton from './components/web/CustomOptionButton';
+import MeetingModeButton from './components/web/MeetingModeButton';
 import FullscreenButton from './components/web/FullscreenButton';
 import LinkToSalesforceButton from './components/web/LinkToSalesforceButton';
 import ProfileButton from './components/web/ProfileButton';
@@ -72,6 +73,12 @@ import VideoSettingsButton from './components/web/VideoSettingsButton';
 import { isButtonEnabled, isDesktopShareButtonDisabled } from './functions.web';
 import { ICustomToolbarButton, IToolboxButton, ToolbarButton } from './types';
 
+
+const meetingMode = {
+    key: 'meeting-mode',
+    Content: MeetingModeButton,
+    group: 0
+};
 
 const microphone = {
     key: 'microphone',
@@ -294,6 +301,7 @@ export function useToolboxButtons(
     const _help = useHelpButton();
 
     const buttons: { [key in ToolbarButton]?: IToolboxButton; } = {
+        'meeting-mode': meetingMode,
         microphone,
         camera,
         profile,
@@ -515,9 +523,7 @@ export const useKeyboardShortcuts = (toolbarButtons: Array<string>) => {
             'speaker.stats'
         ));
 
-        dispatch(toggleDialog(SpeakerStats, {
-            conference: APP.conference
-        }));
+        dispatch(toggleDialog(SpeakerStats));
     }
 
     useEffect(() => {

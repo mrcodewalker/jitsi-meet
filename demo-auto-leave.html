@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Demo Auto Leave - Jitsi Meet</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status.ready { background-color: #d4edda; color: #155724; }
+        .status.testing { background-color: #fff3cd; color: #856404; }
+        .status.success { background-color: #d1ecf1; color: #0c5460; }
+        .status.error { background-color: #f8d7da; color: #721c24; }
+        
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        
+        .logs {
+            border: 1px solid #ddd;
+            padding: 15px;
+            height: 400px;
+            overflow-y: auto;
+            background-color: #f8f9fa;
+            font-family: monospace;
+            font-size: 12px;
+            margin-top: 20px;
+        }
+        
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Demo Auto Leave Functionality</h1>
+        <p>This demo simulates the auto-leave functionality that will be triggered when users close tabs or navigate away from Jitsi Meet.</p>
+        <p><strong>🆕 Updated Logic:</strong> Leave tab 5 seconds → Send leave request → When user returns → Create new attendance log for next leave event.</p>
+        
+        <div id="status" class="status ready">Status: Ready to test</div>
+        
+        <div class="test-section">
+            <h3>📋 Test Setup</h3>
+            <button onclick="setTestData()">Set Test Data</button>
+            <button onclick="clearTestData()">Clear Test Data</button>
+            <button onclick="showCurrentData()">Show Current Data</button>
+        </div>
+        
+        <div class="test-section">
+            <h3>🧪 Manual Tests</h3>
+            <button onclick="testManualLeave()">Test Manual Leave</button>
+            <button onclick="simulateTabClose()">Simulate Tab Close</button>
+            <button onclick="simulateNavigation()">Simulate Navigation</button>
+            <button onclick="simulateVisibilityChange()">Simulate Visibility Change</button>
+            <button onclick="testMultipleLeaves()">Test Multiple Leaves</button>
+            <button onclick="testAutoCreateFlow()">Test Leave-Return Flow</button>
+        </div>
+        
+        <div class="test-section">
+            <h3>🔄 Real Scenario Tests</h3>
+            <p><strong>Try these actions to test auto-leave:</strong></p>
+            <ul>
+                <li><strong>Close this tab</strong> (Ctrl+W or click X) - Will send leave request and clear data</li>
+                <li><strong>Navigate to another URL</strong> in the same tab - Will send leave request and clear data</li>
+                <li><strong>Refresh the page</strong> (F5 or Ctrl+R) - Will send leave request and clear data</li>
+                <li><strong>Switch to another tab</strong> and wait 5+ seconds - Will send leave request, then when you return, create new attendance log</li>
+                <li><strong>Click outside browser</strong> and wait 5+ seconds - Will send leave request and clear data</li>
+            </ul>
+            <p><em>💡 Note: Tab switching will send leave request after 5 seconds, and create new attendance log when you return to the tab.</em></p>
+            <button onclick="clearLogs()">Clear Logs</button>
+        </div>
+        
+        <div class="logs" id="logs">
+            <div>[<span id="current-time"></span>] Demo page loaded. Ready for testing.</div>
+        </div>
+    </div>
+
+    <script>
+        let testData = {
+            attendanceLogId: 'demo-attendance-123',
+            token: 'demo-token-456',
+            meetLink: 'https://meet.example.com/demo-room'
+        };
+
+        function updateTime() {
+            document.getElementById('current-time').textContent = new Date().toLocaleTimeString();
+        }
+        setInterval(updateTime, 1000);
+
+        function log(message, type = 'info') {
+            const logs = document.getElementById('logs');
+            const time = new Date().toLocaleTimeString();
+            const colors = {
+                info: '#333',
+                success: '#28a745',
+                warning: '#ffc107',
+                error: '#dc3545'
+            };
+            logs.innerHTML += `<div style="color: ${colors[type] || colors.info}">[${time}] ${message}</div>`;
+            logs.scrollTop = logs.scrollHeight;
+        }
+
+        function updateStatus(message, type = 'ready') {
+            const status = document.getElementById('status');
+            status.textContent = `Status: ${message}`;
+            status.className = `status ${type}`;
+        }
+
+        function setTestData() {
+            localStorage.setItem('attendanceLogId', testData.attendanceLogId);
+            localStorage.setItem('token', testData.token);
+            localStorage.setItem('meetLink', testData.meetLink);
+            updateStatus('Test data set successfully', 'success');
+            log('✅ Test data set in localStorage', 'success');
+            log(`   - Attendance Log ID: ${testData.attendanceLogId}`, 'info');
+            log(`   - Token: ${testData.token}`, 'info');
+            log(`   - Meet Link: ${testData.meetLink}`, 'info');
+        }
+
+        function clearTestData() {
+            localStorage.removeItem('attendanceLogId');
+            localStorage.removeItem('token');
+            localStorage.removeItem('meetLink');
+            updateStatus('Test data cleared', 'ready');
+            log('🗑️ Test data cleared from localStorage', 'warning');
+        }
+
+        function showCurrentData() {
+            const attendanceLogId = localStorage.getItem('attendanceLogId');
+            const token = localStorage.getItem('token');
+            const meetLink = localStorage.getItem('meetLink');
+            
+            log('📊 Current localStorage data:', 'info');
+            log(`   - Attendance Log ID: ${attendanceLogId || 'Not set'}`, 'info');
+            log(`   - Token: ${token || 'Not set'}`, 'info');
+            log(`   - Meet Link: ${meetLink || 'Not set'}`, 'info');
+            
+            if (attendanceLogId && token) {
+                log(`✅ Ready for leave events with attendance log ID: ${attendanceLogId}`, 'success');
+            } else {
+                log('❌ Not ready for leave events - missing attendance data', 'error');
+            }
+        }
+
+        function sendLeaveRequest() {
+            // Always get fresh data from localStorage
+            const attendanceLogId = localStorage.getItem('attendanceLogId');
+            const token = localStorage.getItem('token');
+            
+            log(`📊 Current attendance data - ID: ${attendanceLogId}, Token: ${token}`, 'info');
+            
+            if (!attendanceLogId || !token) {
+                log('❌ No attendance log ID or token found', 'error');
+                return Promise.resolve(false);
+            }
+
+            const url = `https://signal.kolla.click/api/v1/attendance-logs/${attendanceLogId}/leave-with-token`;
+            const data = JSON.stringify({ token });
+            
+            log(`📤 Sending leave request for attendance log: ${attendanceLogId}`, 'info');
+            
+            // Try sendBeacon first (most reliable for page unload)
+            if (navigator.sendBeacon) {
+                const blob = new Blob([data], { type: 'application/json' });
+                const success = navigator.sendBeacon(url, blob);
+                log(`📡 SendBeacon result for ID ${attendanceLogId}: ${success ? 'SUCCESS' : 'FAILED'}`, success ? 'success' : 'error');
+                if (success) return Promise.resolve(true);
+            } else {
+                log('⚠️ SendBeacon not available, using fetch', 'warning');
+            }
+            
+            // Fallback to fetch
+            return fetch(url, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: data,
+                keepalive: true
+            }).then(response => {
+                const success = response.ok;
+                log(`🌐 Fetch response for ID ${attendanceLogId}: ${response.status} ${response.statusText}`, success ? 'success' : 'error');
+                return success;
+            }).catch(error => {
+                log(`❌ Fetch error for ID ${attendanceLogId}: ${error.message}`, 'error');
+                return false;
+            });
+        }
+
+        function createAttendanceLog() {
+            const meetLink = localStorage.getItem('meetLink');
+            const token = localStorage.getItem('token');
+            
+            if (!meetLink || !token) {
+                log('❌ No meet link or token found, cannot create attendance log', 'error');
+                return Promise.resolve(false);
+            }
+
+            const url = 'https://signal.kolla.click/api/v1/attendance-logs/create-with-token';
+            const data = JSON.stringify({ 
+                token: token,
+                meetLink: meetLink,
+                action: 'join'
+            });
+            
+            log(`📤 Creating new attendance log with action 'join'`, 'info');
+            log(`   - Meet Link: ${meetLink}`, 'info');
+            log(`   - Token: ${token}`, 'info');
+            
+            return fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: data
+            }).then(response => {
+                if (response.ok) {
+                    return response.json().then(data => {
+                        log('✅ New attendance log created successfully', 'success');
+                        log(`   - ID: ${data.data.id}`, 'success');
+                        log(`   - User: ${data.data.userName}`, 'success');
+                        
+                        // Store new data immediately and atomically
+                        const oldId = localStorage.getItem('attendanceLogId');
+                        const oldToken = localStorage.getItem('token');
+                        
+                        log(`📊 Previous attendance data - ID: ${oldId}, Token: ${oldToken}`, 'info');
+                        
+                        // Update with new data (use the same token, just update the ID)
+                        localStorage.setItem('attendanceLogId', data.data.id.toString());
+                        
+                        log(`✅ Updated attendanceLogId from ${oldId} to: ${data.data.id}`, 'success');
+                        
+                        // Verify the data was stored correctly
+                        const storedId = localStorage.getItem('attendanceLogId');
+                        const storedToken = localStorage.getItem('token');
+                        log(`🔍 Verification - Current stored ID: ${storedId}, Current stored Token: ${storedToken}`, 'info');
+                        
+                        // Ensure data consistency
+                        if (storedId === data.data.id.toString() && storedToken === token) {
+                            log('✅ Attendance log data successfully updated and verified', 'success');
+                            log(`🎯 Ready for next leave event with attendance log ID: ${storedId}`, 'success');
+                        } else {
+                            log('❌ Data inconsistency detected after update', 'error');
+                        }
+                        
+                        return true;
+                    });
+                } else {
+                    log(`❌ Failed to create attendance log: ${response.status}`, 'error');
+                    return false;
+                }
+            }).catch(error => {
+                log(`❌ Error creating attendance log: ${error.message}`, 'error');
+                return false;
+            });
+        }
+
+        let isLeaving = false;
+        let visibilityTimeout = null;
+        let focusTimeout = null;
+
+        function handleAutoLeave(reason = 'manual') {
+            if (isLeaving) return Promise.resolve(false);
+            isLeaving = true;
+            
+            log(`🚪 Auto-leave triggered! (Reason: ${reason})`, 'warning');
+            updateStatus('Processing auto-leave...', 'testing');
+            
+            return sendLeaveRequest().then(success => {
+                if (success) {
+                    log('✅ Leave request sent successfully', 'success');
+                    
+                    // For visibility change, keep data for potential return
+                    if (reason === 'visibility_change') {
+                        log('✅ Leave request sent, keeping data for potential return', 'success');
+                        updateStatus('Leave successful, data kept for return', 'success');
+                    } else {
+                        // For page unload or other reasons, clear data
+                        clearTestData();
+                        updateStatus('Leave request sent successfully', 'success');
+                    }
+                    isLeaving = false; // Reset flag
+                    return success;
+                } else {
+                    log('❌ Leave request failed', 'error');
+                    updateStatus('Leave request failed', 'error');
+                    clearTestData();
+                    isLeaving = false; // Reset flag
+                    return success;
+                }
+            });
+        }
+
+        function testManualLeave() {
+            log('🧪 Testing manual leave...', 'info');
+            handleAutoLeave('manual').then(success => {
+                log(`🏁 Manual test completed. Success: ${success}`, success ? 'success' : 'error');
+            });
+        }
+
+        function simulateTabClose() {
+            log('🔄 Simulating tab close...', 'info');
+            handleAutoLeave('page_unload');
+        }
+
+        function simulateNavigation() {
+            log('🔄 Simulating navigation...', 'info');
+            handleAutoLeave('page_unload');
+        }
+
+        function simulateVisibilityChange() {
+            log('🔄 Simulating visibility change (tab switch)...', 'info');
+            handleAutoLeave('visibility_change');
+        }
+
+        function clearLogs() {
+            document.getElementById('logs').innerHTML = '<div>[<span id="current-time"></span>] Logs cleared.</div>';
+            updateTime();
+        }
+
+        function testMultipleLeaves() {
+            log('🧪 Testing multiple leaves scenario...', 'info');
+            
+            // Show current data before test
+            showCurrentData();
+            
+            // Test sequence: Leave -> Create New -> Leave Again
+            handleAutoLeave('visibility_change').then(success1 => {
+                log(`🏁 First leave completed. Success: ${success1}`, success1 ? 'success' : 'error');
+                
+                // Show data after first leave
+                setTimeout(() => {
+                    log('📊 Data after first leave:', 'info');
+                    showCurrentData();
+                    
+                    // Wait a bit then test second leave
+                    setTimeout(() => {
+                        log('🔄 Testing second leave with new attendance log...', 'info');
+                        handleAutoLeave('visibility_change').then(success2 => {
+                            log(`🏁 Second leave completed. Success: ${success2}`, success2 ? 'success' : 'error');
+                            
+                            // Show data after second leave
+                            setTimeout(() => {
+                                log('📊 Data after second leave:', 'info');
+                                showCurrentData();
+                                
+                                // Wait a bit then test third leave
+                                setTimeout(() => {
+                                    log('🔄 Testing third leave with new attendance log...', 'info');
+                                    handleAutoLeave('visibility_change').then(success3 => {
+                                        log(`🏁 Third leave completed. Success: ${success3}`, success3 ? 'success' : 'error');
+                                        
+                                        // Show final data
+                                        setTimeout(() => {
+                                            log('📊 Final data after third leave:', 'info');
+                                            showCurrentData();
+                                            log('✅ Multiple leaves test completed!', 'success');
+                                        }, 1000);
+                                    });
+                                }, 2000);
+                            }, 1000);
+                        });
+                    }, 2000);
+                }, 1000);
+            });
+        }
+
+        function testAutoCreateFlow() {
+            log('🚀 Testing Updated Leave-Return Flow...', 'info');
+            log('This test demonstrates the new logic:', 'info');
+            log('1. Create initial attendance log', 'info');
+            log('2. Simulate leave tab for 5+ seconds', 'info');
+            log('3. Simulate return to tab (create new attendance log)', 'info');
+            log('4. Test leave again with new attendance log', 'info');
+            
+            // Clear existing data first
+            clearTestData();
+            
+            // Set test data
+            setTestData();
+            
+            // Wait a bit then create initial attendance log
+            setTimeout(() => {
+                log('🔄 Creating initial attendance log...', 'info');
+                createAttendanceLog().then(success => {
+                    if (success) {
+                        log('✅ Initial attendance log created successfully', 'success');
+                        showCurrentData();
+                        
+                        // Simulate leave tab
+                        setTimeout(() => {
+                            log('🧪 Simulating leave tab (visibility change)...', 'info');
+                            handleAutoLeave('visibility_change').then(leaveSuccess => {
+                                log(`🏁 Leave completed. Success: ${leaveSuccess}`, leaveSuccess ? 'success' : 'error');
+                                
+                                // Simulate return to tab
+                                setTimeout(() => {
+                                    log('🔄 Simulating return to tab (creating new attendance log)...', 'info');
+                                    createAttendanceLog().then(returnSuccess => {
+                                        if (returnSuccess) {
+                                            log('✅ New attendance log created for return', 'success');
+                                            showCurrentData();
+                                            
+                                            // Test leave again with new log
+                                            setTimeout(() => {
+                                                log('🧪 Testing leave again with new attendance log...', 'info');
+                                                handleAutoLeave('visibility_change').then(secondLeaveSuccess => {
+                                                    log(`🏁 Second leave completed. Success: ${secondLeaveSuccess}`, secondLeaveSuccess ? 'success' : 'error');
+                                                    
+                                                    // Final check
+                                                    setTimeout(() => {
+                                                        log('📊 Final check:', 'info');
+                                                        showCurrentData();
+                                                        log('✅ Updated Leave-Return Flow test completed!', 'success');
+                                                    }, 1000);
+                                                });
+                                            }, 2000);
+                                        } else {
+                                            log('❌ Failed to create new attendance log for return', 'error');
+                                        }
+                                    });
+                                }, 2000);
+                            });
+                        }, 2000);
+                    } else {
+                        log('❌ Failed to create initial attendance log', 'error');
+                    }
+                });
+            }, 1000);
+        }
+
+        // Set up event listeners for real testing
+        window.addEventListener('beforeunload', (event) => {
+            log('📋 beforeunload event triggered', 'warning');
+            handleAutoLeave('page_unload');
+        });
+
+        window.addEventListener('pagehide', (event) => {
+            log('📋 pagehide event triggered', 'warning');
+            handleAutoLeave('page_unload');
+        });
+
+        window.addEventListener('unload', (event) => {
+            log('📋 unload event triggered', 'warning');
+            handleAutoLeave('page_unload');
+        });
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                log('👁️ Page became hidden', 'warning');
+                // Clear any existing timeout
+                if (visibilityTimeout) {
+                    clearTimeout(visibilityTimeout);
+                }
+                visibilityTimeout = setTimeout(() => {
+                    if (document.hidden && !isLeaving) {
+                        log('⏰ Page still hidden after 5 seconds, triggering auto-leave', 'warning');
+                        handleAutoLeave('visibility_change');
+                    }
+                }, 5000);
+            } else {
+                log('👁️ Page became visible - user returned', 'info');
+                // Page became visible, clear timeout
+                if (visibilityTimeout) {
+                    clearTimeout(visibilityTimeout);
+                    visibilityTimeout = null;
+                }
+                
+                // When user returns, create new attendance log
+                log('🔄 User returned, creating new attendance log...', 'info');
+                setTimeout(() => {
+                    const attendanceLogId = localStorage.getItem('attendanceLogId');
+                    const token = localStorage.getItem('token');
+                    const meetLink = localStorage.getItem('meetLink');
+                    
+                    if (attendanceLogId && token && meetLink) {
+                        createAttendanceLog().then(success => {
+                            if (success) {
+                                log('✅ New attendance log created for return', 'success');
+                                updateStatus('New attendance log created for return', 'success');
+                            } else {
+                                log('❌ Failed to create new attendance log for return', 'error');
+                                updateStatus('Failed to create new log for return', 'error');
+                            }
+                        });
+                    } else {
+                        log('❌ No attendance data found, skipping new log creation', 'warning');
+                    }
+                }, 1000);
+            }
+        });
+
+        window.addEventListener('blur', () => {
+            log('🔍 Window lost focus', 'warning');
+            // Clear any existing timeout
+            if (focusTimeout) {
+                clearTimeout(focusTimeout);
+            }
+            focusTimeout = setTimeout(() => {
+                if (!document.hasFocus() && !isLeaving) {
+                    log('⏰ Window still out of focus after 5 seconds, triggering auto-leave', 'warning');
+                    handleAutoLeave('focus_loss');
+                }
+            }, 5000);
+        });
+
+        // Initial setup
+        log('🎯 Demo page loaded. Set test data first, then try the test scenarios!', 'info');
+        updateTime();
+    </script>
+</body>
+</html>

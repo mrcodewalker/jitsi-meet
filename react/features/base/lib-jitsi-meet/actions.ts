@@ -48,9 +48,17 @@ export function initLib() {
         dispatch({ type: LIB_WILL_INIT });
 
         try {
+            // Force the conference request URL - DISABLED to remove 1-hour time limit
+            const updatedConfig = {
+                ...config
+                // conferenceRequestUrl: 'https://meet.kolla.click/conference-request/v1' // DISABLED
+            };
+
+            // Initialize with forced configuration
             JitsiMeetJS.init({
                 enableAnalyticsLogging: isAnalyticsEnabled(getState),
-                ...config,
+                ...updatedConfig,
+                // conferenceRequestUrl: 'https://meet.kolla.click/conference-request/v1', // DISABLED
                 externalStorage: jitsiLocalStorage.isLocalStorageDisabled() ? jitsiLocalStorage : undefined
             });
             JitsiMeetJS.setNetworkInfo({

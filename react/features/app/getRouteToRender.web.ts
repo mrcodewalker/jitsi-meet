@@ -1,4 +1,3 @@
-// @ts-expect-error
 import { generateRoomWithoutSeparator } from '@jitsi/js-utils/random';
 
 import { getTokenAuthUrl } from '../authentication/functions.web';
@@ -9,7 +8,7 @@ import { browser } from '../base/lib-jitsi-meet';
 import { toState } from '../base/redux/functions';
 import { parseURIString } from '../base/util/uri';
 import Conference from '../conference/components/web/Conference';
-import { getDeepLinkingPage } from '../deep-linking/functions';
+import { getDeepLinkingPage } from '../deep-linking/functions.web';
 import UnsupportedDesktopBrowser from '../unsupported-browser/components/UnsupportedDesktopBrowser';
 import BlankPage from '../welcome/components/BlankPage.web';
 import WelcomePage from '../welcome/components/WelcomePage.web';
@@ -112,25 +111,23 @@ function _getWebConferenceRoute(state: IReduxState) {
 function _getWebWelcomePageRoute(state: IReduxState) {
     const route = _getEmptyRoute();
 
-    if (isWelcomePageEnabled(state)) {
-        if (isSupportedBrowser()) {
-            const customLandingPage = getCustomLandingPageURL(state);
+    // Check if URL has meetLink and token parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const meetLink = urlParams.get('meetLink');
+    const token = urlParams.get('token');
 
-            if (customLandingPage) {
-                route.href = customLandingPage;
-            } else {
-                route.component = WelcomePage;
-            }
-        } else {
-            route.component = UnsupportedDesktopBrowser;
-        }
-    } else {
-        // Web: if the welcome page is disabled, go directly to a random room.
-        const url = new URL(window.location.href);
-
-        url.pathname += generateRoomWithoutSeparator();
-        route.href = url.href;
+    // If no meetLink or token, redirect to meet.kolla.click
+    if (!meetLink || !token) {
+        route.href = 'https://meeting.kolla.click/';
+        return Promise.resolve(route);
     }
+
+    // If we have meetLink and token, create a room URL and redirect to it
+    // This will bypass the welcome page and go directly to prejoin
+    const url = new URL(window.location.href);
+    url.pathname = `/${meetLink}`;
+    // Keep the query parameters for the prejoin component to use
+    route.href = url.href;
 
     return Promise.resolve(route);
 }

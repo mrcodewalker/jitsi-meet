@@ -1540,7 +1540,7 @@
         "go": "ZAČÍT",
         "goSmall": "ZAČÍT",
         "headerSubtitle": "Bezpečné a kvalitní setkávání",
-        "headerTitle": "Jitsi Meet",
+        "headerTitle": "Kolla Meeting",
         "info": "Informace o vytáčení",
         "jitsiOnMobile": "Jitsi na mobilu – stáhněte si naše aplikace a spusťte hovor odkudkoliv",
         "join": "VYTVOŘIT / PŘIPOJIT",
@@ -1548,7 +1548,7 @@
             "calendar": "Logo kalendáře",
             "desktopPreviewThumbnail": "Náhled zobrazení plochy",
             "googleLogo": "Google Logo",
-            "logoDeepLinking": "Jitsi meet logo",
+            "logoDeepLinking": "Kolla Meeting logo",
             "microsoftLogo": "Microsoft logo",
             "policyLogo": "Policy logo"
         },

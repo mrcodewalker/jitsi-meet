@@ -14,7 +14,7 @@ import { ADD_KNOWN_DOMAINS } from './actionTypes';
  * out of the Android manifest.
  */
 export const DEFAULT_STATE = [
-    'alpha.jitsi.net',
+    'meet.kolla.click',
     'beta.meet.jit.si',
     'meet.jit.si',
     '8x8.vc'
