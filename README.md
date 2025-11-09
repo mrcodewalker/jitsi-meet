@@ -1,4 +1,4 @@
-# <p align="center">Jitsi Meet</p>
+# <p align="center">Kolla Meeting</p>
 
 Jitsi Meet is a set of Open Source projects which empower users to use and deploy
 video conferencing platforms with state-of-the-art video quality and features.
@@ -85,3 +85,4 @@ see our [guidelines for contributing](CONTRIBUTING.md).
 Built with ❤️ by the Jitsi team at <a href="https://8x8.com" target="_blank">8x8</a> and our community.
 </p>
 </footer>
+"# jitsi-meet" 
