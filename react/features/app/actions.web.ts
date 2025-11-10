@@ -121,10 +121,11 @@ export function maybeRedirectToWelcomePage(options: { feedbackSubmitted?: boolea
 
         // Send leave request first
         sendLeaveRequest().finally(() => {
-            // Clear localStorage after sending request
+            // Clear attendance log ID only
+            // DO NOT clear meetLink and token - they may be needed for other features
             localStorage.removeItem('attendanceLogId');
-            localStorage.removeItem('meetLink');
-            localStorage.removeItem('token');
+            // localStorage.removeItem('meetLink');
+            // localStorage.removeItem('token');
             
             // Redirect to meeting.kolla.click instead of original logic
             window.location.href = 'https://meeting.kolla.click/';

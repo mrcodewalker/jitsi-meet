@@ -256,6 +256,9 @@ const Prejoin = ({
         const meetLinkParam = urlParams.get('meetLink');
         const tokenParam = urlParams.get('token');
 
+        console.log('getUrlParams - URL search:', window.location.search);
+        console.log('getUrlParams - Parsed params:', { meetLinkParam, tokenParam, pathPart });
+
         return {
             meetLink: meetLinkParam || pathPart,
             token: tokenParam
@@ -373,9 +376,14 @@ const Prejoin = ({
     };
 
     /**
-     * Check access on component mount
+     * Check access on component mount - ALWAYS refresh on mount/F5 to get latest meeting info
+     * When F5 is pressed, this will always fetch fresh data from server to update meetingRole and meetingResponse
      */
     useEffect(() => {
+        // Reset access checked state to ensure we always make a fresh request on F5
+        setAccessChecked(false);
+        setMeetingData(null);
+
         const { meetLink, token } = getUrlParams();
         let effectiveMeetLink = meetLink;
         let effectiveToken = token;
@@ -387,14 +395,54 @@ const Prejoin = ({
         console.log('Current URL:', window.location.href);
         console.log('Search params:', window.location.search);
 
-        // Fallback to localStorage if URL params are missing
+        // CRITICAL: Save meetLink and token to localStorage IMMEDIATELY if they come from URL
+        // This ensures they are saved even if API call fails or is delayed
+        if (meetLink || token) {
+            try {
+                if (meetLink) {
+                    localStorage.setItem('meetLink', meetLink);
+                    console.log('✅ Saved meetLink to localStorage immediately:', meetLink);
+                }
+                if (token) {
+                    localStorage.setItem('token', token);
+                    console.log('✅ Saved token to localStorage immediately');
+                }
+            } catch (e) {
+                console.warn('Unable to save credentials to localStorage:', e);
+            }
+        }
+
+        // When F5 (refresh), prioritize localStorage to get meetLink and token
+        // This ensures we always have credentials even if URL params are cleared
         if (!effectiveMeetLink || !effectiveToken) {
             const storedMeetLink = localStorage.getItem('meetLink');
             const storedToken = localStorage.getItem('token');
 
-            // Prefer explicitly provided values over storage
+            console.log('Loading from localStorage on refresh:', { storedMeetLink: !!storedMeetLink, storedToken: !!storedToken });
+
+            // Prefer explicitly provided values over storage, but use storage if URL params missing
             effectiveMeetLink = effectiveMeetLink || storedMeetLink;
             effectiveToken = effectiveToken || storedToken;
+
+            // CRITICAL: Ensure token is saved to localStorage if we have it (from URL or storage)
+            if (effectiveToken) {
+                try {
+                    localStorage.setItem('token', effectiveToken);
+                    console.log('✅ Ensured token is saved to localStorage');
+                } catch (e) {
+                    console.warn('Unable to save token to localStorage:', e);
+                }
+            }
+
+            // CRITICAL: Ensure meetLink is saved to localStorage if we have it
+            if (effectiveMeetLink) {
+                try {
+                    localStorage.setItem('meetLink', effectiveMeetLink);
+                    console.log('✅ Ensured meetLink is saved to localStorage');
+                } catch (e) {
+                    console.warn('Unable to save meetLink to localStorage:', e);
+                }
+            }
 
             if (!effectiveMeetLink && !effectiveToken) {
                 console.log('Missing parameters - meetLink and token are both absent.');
@@ -404,6 +452,11 @@ const Prejoin = ({
         }
 
         const verifyAccess = async () => {
+            // ALWAYS make a fresh request to get latest meeting information on F5
+            // This ensures meetingRole and other meeting data are up-to-date even if user is already in room
+            console.log('Making fresh access check request to get latest meeting info (F5 refresh)...');
+            console.log('Using credentials:', { meetLink: effectiveMeetLink, hasToken: !!effectiveToken });
+            
             // Try up to 3 times on transient errors to avoid kicking the user out on refresh
             let attempts = 0;
             let result: any = null;
@@ -425,26 +478,54 @@ const Prejoin = ({
             console.log('Token:', effectiveToken);
 
             if (result?.success && result?.data?.hasAccess === true) {
-                console.log('Access granted, setting meeting data:', result.data);
+                console.log('Access granted, updating meeting data with latest info from server:', result.data);
 
-                // Store meeting data
+                // ALWAYS update meeting data with latest information from server
+                // This is critical on F5 to get updated meetingRole
                 setMeetingData(result.data);
 
-                // Set display name from user data if available
+                // Set display name from user data if available (always update)
                 if (result.data?.user?.name) {
-                    console.log('Setting display name:', result.data.user.name);
+                    console.log('Updating display name:', result.data.user.name);
                     dispatchUpdateSettings({
                         displayName: result.data.user.name
                     });
                 }
 
-                // Persist user role for authorization checks in-app
-                // Persist meeting-scoped role (used to decide moderator privileges)
+                // ALWAYS save full response to localStorage - this updates meetingResponse on F5
+                try {
+                    localStorage.setItem('meetingResponse', JSON.stringify(result.data));
+                    console.log('✅ Updated meetingResponse in localStorage with latest data from server');
+                } catch (e) {
+                    console.warn('Unable to persist meetingResponse to localStorage');
+                }
+
+                // ALWAYS update meetingRole in localStorage with latest meetingRole from server
+                // This ensures meetingRole changes are reflected immediately on F5 refresh
                 if (result.data?.meeting?.meetingRole) {
                     try {
-                        localStorage.setItem('userRole', String(result.data.meeting.meetingRole));
+                        const latestMeetingRole = String(result.data.meeting.meetingRole);
+                        const oldMeetingRole = localStorage.getItem('meetingRole');
+                        localStorage.setItem('meetingRole', latestMeetingRole);
+                        console.log('✅ Updated meetingRole in localStorage:', {
+                            old: oldMeetingRole,
+                            new: latestMeetingRole
+                        });
+                        console.log('Meeting data:', {
+                            meetingRole: result.data.meeting.meetingRole,
+                            meetingId: result.data.meeting?.id,
+                            meetingCode: result.data.meeting?.meetingCode
+                        });
                     } catch (e) {
-                        console.warn('Unable to persist userRole to localStorage');
+                        console.warn('Unable to persist meetingRole to localStorage');
+                    }
+                } else {
+                    // Clear meetingRole if not present in response
+                    try {
+                        localStorage.removeItem('meetingRole');
+                        console.log('Cleared meetingRole from localStorage (not in response)');
+                    } catch (e) {
+                        console.warn('Unable to clear meetingRole from localStorage');
                     }
                 }
 
@@ -468,24 +549,36 @@ const Prejoin = ({
                 console.warn('Access check failed due to network or unknown error, keeping user on page');
                 setAccessChecked(true);
                 // Ensure creds remain in storage
-                localStorage.setItem('meetLink', effectiveMeetLink as string);
-                localStorage.setItem('token', effectiveToken as string);
+                if (effectiveMeetLink) {
+                    localStorage.setItem('meetLink', effectiveMeetLink as string);
+                }
+                if (effectiveToken) {
+                    localStorage.setItem('token', effectiveToken as string);
+                }
             }
         };
 
-        // Add small delay to ensure component is fully mounted
-        // If we have a meetLink but no token yet, persist meetLink and do not redirect
-        if (effectiveMeetLink && !effectiveToken) {
+        // If we have both meetLink and token (from URL or localStorage), always verify access
+        // This ensures F5 always triggers a fresh request to update meetingRole and meetingResponse
+        if (effectiveMeetLink && effectiveToken) {
+            // Always call verifyAccess to get latest meeting information on F5
+            setTimeout(() => {
+                verifyAccess();
+            }, 100);
+        } else if (effectiveMeetLink && !effectiveToken) {
+            // If we have meetLink but no token yet, persist meetLink and wait
             try {
                 localStorage.setItem('meetLink', effectiveMeetLink);
-            } catch (e) { /* noop */ }
+                console.log('✅ Saved meetLink to localStorage (waiting for token)');
+            } catch (e) {
+                console.warn('Unable to save meetLink to localStorage:', e);
+            }
             setAccessChecked(true);
-            return;
+        } else {
+            // No credentials at all
+            console.log('No credentials available, redirecting...');
+            navigateToExternal();
         }
-
-        setTimeout(() => {
-            verifyAccess();
-        }, 100);
     }, []);
 
 

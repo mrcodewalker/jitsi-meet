@@ -14,7 +14,10 @@ import ClickableIcon from '../../../base/ui/components/web/ClickableIcon';
 import { BUTTON_TYPES } from '../../../base/ui/constants.web';
 import { findAncestorByClass } from '../../../base/ui/functions.web';
 import { isAddBreakoutRoomButtonVisible } from '../../../breakout-rooms/functions';
-import MuteEveryoneDialog from '../../../video-menu/components/web/MuteEveryoneDialog';
+import { muteAllParticipantsIncludingLocal } from '../../../video-menu/actions.any';
+import { MEDIA_TYPE } from '../../../base/media/constants';
+import { showNotification } from '../../../notifications/actions';
+import { NOTIFICATION_TIMEOUT_TYPE, NOTIFICATION_TYPE } from '../../../notifications/constants';
 import { shouldDisplayCurrentVisitorsList } from '../../../visitors/functions';
 import { close } from '../../actions.web';
 import {
@@ -181,8 +184,16 @@ const ParticipantsPane = () => {
     }, []);
 
     const onMuteAll = useCallback(() => {
-        dispatch(openDialog(MuteEveryoneDialog));
-    }, []);
+        // Mute all participants including local participant
+        dispatch(muteAllParticipantsIncludingLocal([], MEDIA_TYPE.AUDIO));
+        
+        // Show notification
+        dispatch(showNotification({
+            titleKey: 'notify.muteAllTitle',
+            descriptionKey: 'notify.muteAllDescription',
+            appearance: NOTIFICATION_TYPE.NORMAL
+        }, NOTIFICATION_TIMEOUT_TYPE.MEDIUM));
+    }, [ dispatch ]);
 
     const onToggleContext = useCallback(() => {
         setContextOpen(open => !open);

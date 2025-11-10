@@ -93,6 +93,7 @@ export function commonUserJoinedHandling(
         const isPromoted = conference?.getMetadataHandler().getMetadata()?.visitors?.promoted?.[id];
 
         // the identity and avatar come from jwt and never change in the presence
+        // Note: Role filtering is handled in middleware to ensure ADMIN always gets moderator
         dispatch(participantJoined({
             avatarURL: user.getIdentity()?.user?.avatar,
             botType: user.getBotType(),

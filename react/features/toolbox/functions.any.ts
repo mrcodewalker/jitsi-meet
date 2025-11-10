@@ -2,11 +2,33 @@ import { IReduxState } from '../app/types';
 import { IStateful } from '../base/app/types';
 import { isJwtFeatureEnabledStateless } from '../base/jwt/functions';
 import { IGUMPendingState } from '../base/media/types';
+import { getLocalParticipant, getRemoteParticipants } from '../base/participants/functions';
 import { IParticipantFeatures } from '../base/participants/types';
 import { toState } from '../base/redux/functions';
+import { isParticipantAudioMuted } from '../base/tracks/functions.any';
 import { iAmVisitor } from '../visitors/functions';
 
 import { VISITORS_MODE_BUTTONS } from './constants';
+
+/**
+ * Checks if anyone else (other than the local participant) is currently speaking (unmuted).
+ *
+ * @param {IReduxState} state - The state from the Redux store.
+ * @returns {boolean} - True if someone else is speaking, false otherwise.
+ */
+function isAnyoneElseSpeaking(state: IReduxState): boolean {
+    const localParticipant = getLocalParticipant(state);
+    const remoteParticipants = getRemoteParticipants(state);
+    
+    // Check remote participants
+    for (const [id, participant] of remoteParticipants) {
+        if (!isParticipantAudioMuted(participant, state)) {
+            return true;
+        }
+    }
+    
+    return false;
+}
 
 /**
  * Indicates if the audio mute button is disabled or not.
@@ -17,9 +39,27 @@ import { VISITORS_MODE_BUTTONS } from './constants';
 export function isAudioMuteButtonDisabled(state: IReduxState) {
     const { available, muted, unmuteBlocked, gumPending } = state['features/base/media'].audio;
     const { startSilent } = state['features/base/config'];
-
-    return Boolean(!available || startSilent || (muted && unmuteBlocked) || gumPending !== IGUMPendingState.NONE
+    
+    // Check if meeting mode is enabled
+    const meetingModeEnabled = state['features/meeting-mode']?.enabled || false;
+    
+    // Base disabled conditions
+    const baseDisabled = Boolean(!available || startSilent || (muted && unmuteBlocked) || gumPending !== IGUMPendingState.NONE
         || iAmVisitor(state));
+    
+    // If base conditions are already disabled, return true
+    if (baseDisabled) {
+        return true;
+    }
+    
+    // In meeting mode: if someone else is speaking and local participant is muted, disable unmute button
+    if (meetingModeEnabled && muted) {
+        if (isAnyoneElseSpeaking(state)) {
+            return true;
+        }
+    }
+    
+    return false;
 }
 
 /**

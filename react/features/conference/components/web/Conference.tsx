@@ -36,7 +36,8 @@ import { LAYOUT_CLASSNAMES } from '../../../video-layout/constants';
 import { getCurrentLayout } from '../../../video-layout/functions.any';
 import VisitorsQueue from '../../../visitors/components/web/VisitorsQueue';
 import { showVisitorsQueue } from '../../../visitors/functions';
-import { setupAutoLeaveListeners, handleAutoLeave } from '../../../toolbox/utils/autoLeaveUtils';
+// Auto-leave listeners removed - only handle leave when user clicks Leave Meeting button
+// import { setupAutoLeaveListeners, handleAutoLeave } from '../../../toolbox/utils/autoLeaveUtils';
 import { init } from '../../actions.web';
 import { maybeShowSuboptimalExperienceNotification } from '../../functions.web';
 import {
@@ -446,23 +447,21 @@ export default reactReduxConnect(_mapStateToProps)(translate(props => {
     const { isOpen: isChatOpen } = useSelector((state: IReduxState) => state['features/chat']);
     const isFileUploadEnabled = useSelector(isFileUploadingEnabled);
 
-    // Set up auto-leave listeners when component mounts
-    useEffect(() => {
-        const cleanup = setupAutoLeaveListeners(() => {
-            console.log('Auto-leave triggered due to page unload/navigation');
-            // Additional cleanup can be done here if needed
-            // The actual leave request is already handled in setupAutoLeaveListeners
-        });
-        
-        cleanupRef.current = cleanup;
-        
-        // Cleanup on unmount
-        return () => {
-            if (cleanupRef.current) {
-                cleanupRef.current();
-            }
-        };
-    }, []);
+    // Auto-leave listeners removed - only send leave request when user clicks Leave Meeting button
+    // No automatic leave detection on tab switch, visibility change, or focus loss
+    // useEffect(() => {
+    //     const cleanup = setupAutoLeaveListeners(() => {
+    //         console.log('Auto-leave triggered due to page unload/navigation');
+    //     });
+    //     
+    //     cleanupRef.current = cleanup;
+    //     
+    //     return () => {
+    //         if (cleanupRef.current) {
+    //             cleanupRef.current();
+    //         }
+    //     };
+    // }, []);
 
     const handleDragEnter = useCallback((e: React.DragEvent) => {
         e.preventDefault();

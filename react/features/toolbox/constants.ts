@@ -30,15 +30,15 @@ export const THRESHOLDS = [
     },
     {
         width: 565,
-        order: [ 'microphone', 'camera', 'desktop', 'meeting-mode', 'chat', 'raisehand', 'reactions', 'participants-pane', 'tileview' ]
+        order: [ 'microphone', 'camera', 'desktop', 'meeting-mode', 'mute-all', 'chat', 'raisehand', 'reactions', 'participants-pane', 'tileview' ]
     },
     {
         width: 520,
-        order: [ 'microphone', 'camera', 'desktop', 'meeting-mode', 'chat', 'raisehand', 'participants-pane', 'tileview' ]
+        order: [ 'microphone', 'camera', 'desktop', 'meeting-mode', 'mute-all', 'chat', 'raisehand', 'participants-pane', 'tileview' ]
     },
     {
         width: 470,
-        order: [ 'microphone', 'camera', 'desktop', 'meeting-mode', 'chat', 'raisehand', 'participants-pane' ]
+        order: [ 'microphone', 'camera', 'desktop', 'meeting-mode', 'mute-all', 'chat', 'raisehand', 'participants-pane' ]
     },
     {
         width: 420,
@@ -93,6 +93,7 @@ export const MAIN_TOOLBAR_BUTTONS_PRIORITY = [
     'camera',
     'desktop',
     'meeting-mode',
+    'mute-all',
     'chat',
     'raisehand',
     'reactions',
@@ -158,6 +159,7 @@ export const TOOLBAR_BUTTONS: ToolbarButton[] = [
     'help',
     'highlight',
     'invite',
+    'mute-all',
     'linktosalesforce',
     'livestreaming',
     'microphone',

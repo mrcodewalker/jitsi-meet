@@ -222,6 +222,52 @@ class ChatInput extends Component<IProps, IState> {
     }
 
     /**
+     * Send message to external API for group chat (Everyone only)
+     */
+    _sendMessageToAPI = async (message: string): Promise<boolean> => {
+        try {
+            console.log('[_sendMessageToAPI] Starting to send message to API:', message);
+            
+            const meetLink = localStorage.getItem('meetLink');
+            const token = localStorage.getItem('token');
+            
+            console.log('[_sendMessageToAPI] meetLink:', meetLink ? 'exists' : 'missing');
+            console.log('[_sendMessageToAPI] token:', token ? 'exists' : 'missing');
+            
+            if (!meetLink || !token) {
+                console.warn('[_sendMessageToAPI] Missing meetLink or token, cannot send message to API');
+                return false;
+            }
+            
+            console.log('[_sendMessageToAPI] Sending fetch request...');
+            const response = await fetch('https://signal.kolla.click/api/v1/messages/create', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    message,
+                    meetLink,
+                    token
+                })
+            });
+            
+            console.log('[_sendMessageToAPI] Response status:', response.status);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const result = await response.json();
+            console.log('[_sendMessageToAPI] Message sent to API successfully:', result);
+            return true;
+        } catch (error) {
+            console.error('[_sendMessageToAPI] Error sending message to API:', error);
+            return false;
+        }
+    };
+
+    /**
      * Submits the message to the chat window.
      *
      * @returns {void}
@@ -233,13 +279,32 @@ class ChatInput extends Component<IProps, IState> {
             onSend
         } = this.props;
 
+        console.log('[_onSubmitMessage] Called with:', {
+            _isSendGroupChatDisabled,
+            _privateMessageRecipientId,
+            message: this.state.message
+        });
+
         if (_isSendGroupChatDisabled && !_privateMessageRecipientId) {
+            console.log('[_onSubmitMessage] Group chat disabled and no private recipient, returning');
             return;
         }
 
         const trimmed = this.state.message.trim();
 
         if (trimmed) {
+            // Only send to API for group chat (Everyone) - not private messages
+            if (!_privateMessageRecipientId) {
+                console.log('[_onSubmitMessage] This is a group chat message (Everyone), sending to API');
+                // Send to API asynchronously (don't block UI)
+                this._sendMessageToAPI(trimmed).catch(error => {
+                    console.error('[_onSubmitMessage] Failed to send message to API:', error);
+                });
+            } else {
+                console.log('[_onSubmitMessage] This is a private message, skipping API call');
+            }
+
+            // Send message to conference (existing behavior)
             onSend(trimmed);
 
             this.setState({ message: '' });
@@ -249,6 +314,8 @@ class ChatInput extends Component<IProps, IState> {
 
             // Hide the Emojis box after submitting the message
             this.setState({ showSmileysPanel: false });
+        } else {
+            console.log('[_onSubmitMessage] Message is empty, not sending');
         }
 
     }

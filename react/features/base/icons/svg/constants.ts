@@ -57,6 +57,7 @@ import { default as IconMessage } from './message.svg';
 import { default as IconMeter } from './meter.svg';
 import { default as IconMicSlash } from './mic-slash.svg';
 import { default as IconMic } from './mic.svg';
+import { default as IconMuteAll } from './mute-all.svg';
 import { default as IconModerator } from './moderator.svg';
 import { default as IconMeeting } from './meeting.svg';
 import { default as IconMeetingOff } from './meeting-off.svg';
@@ -171,6 +172,7 @@ export const DEFAULT_ICON: Record<string, any> = {
     IconMic,
     IconMicSlash,
     IconModerator,
+    IconMuteAll,
     IconMeeting,
     IconMeetingOff,
     IconNoiseSuppressionOff,

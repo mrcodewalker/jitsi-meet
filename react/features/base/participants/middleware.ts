@@ -75,7 +75,8 @@ import {
     LOCAL_PARTICIPANT_DEFAULT_ID,
     LOWER_HAND_AUDIO_LEVEL,
     PARTICIPANT_JOINED_SOUND_ID,
-    PARTICIPANT_LEFT_SOUND_ID
+    PARTICIPANT_LEFT_SOUND_ID,
+    PARTICIPANT_ROLE
 } from './constants';
 import {
     getDominantSpeakerParticipant,
@@ -157,7 +158,7 @@ MiddlewareRegistry.register(store => next => action => {
         let isAdmin = false;
         try {
             isAdmin = (typeof window !== 'undefined')
-                && window?.localStorage?.getItem('userRole') === 'ADMIN';
+                && window?.localStorage?.getItem('meetingRole') === 'ADMIN';
         } catch (e) {
             isAdmin = false;
         }
@@ -301,6 +302,40 @@ MiddlewareRegistry.register(store => next => action => {
     }
 
     case PARTICIPANT_JOINED: {
+        // CRITICAL: Check meetingRole for local participant - ADMIN should ALWAYS get moderator if server assigns it
+        // This ensures ADMIN gets moderator regardless of when they join (first, second, third, etc.)
+        const { participant } = action;
+        if (participant && participant.local) {
+            let isAdmin = false;
+            try {
+                isAdmin = (typeof window !== 'undefined')
+                    && window?.localStorage?.getItem('meetingRole') === 'ADMIN';
+            } catch (e) {
+                isAdmin = false;
+            }
+
+            console.log(`[PARTICIPANT_JOINED] Local participant: role=${participant.role}, meetingRole=${isAdmin ? 'ADMIN' : 'NOT_ADMIN'}`);
+
+            // CRITICAL: Only block moderator role if user is NOT ADMIN
+            // If user is ADMIN, ALWAYS allow moderator role (regardless of when they join)
+            if (participant.role === PARTICIPANT_ROLE.MODERATOR) {
+                if (!isAdmin) {
+                    // Block moderator role for non-ADMIN users
+                    console.log(`[PARTICIPANT_JOINED] ❌ Blocking moderator role - user is not ADMIN`);
+                    action.participant.role = PARTICIPANT_ROLE.NONE;
+                } else {
+                    // ADMIN user - explicitly allow moderator role
+                    // This ensures ADMIN gets moderator even if they join after other users
+                    console.log(`[PARTICIPANT_JOINED] ✅ ADMIN: Allowing moderator role`);
+                }
+            } else if (isAdmin) {
+                // ADMIN user but role is not moderator yet - force moderator role
+                console.log(`[PARTICIPANT_JOINED] ✅ ADMIN: Forcing moderator role (current role is ${participant.role || 'undefined'})`);
+                action.participant.role = PARTICIPANT_ROLE.MODERATOR;
+            }
+            // Ensure ADMIN role enforcement occurs locally even if server delays promotion
+        }
+
         const result = _participantJoinedOrUpdated(store, next, action);
 
         // Do not play sounds when a screenshare or whiteboard participant tile is created for screenshare.
@@ -309,7 +344,6 @@ MiddlewareRegistry.register(store => next => action => {
         ) && _maybePlaySounds(store, action);
 
         // Force mute all new participants (including local participant)
-        const { participant } = action;
         if (participant && !participant.fakeParticipant) {
             // Force mute local participant
             if (participant.local) {
@@ -361,8 +395,42 @@ MiddlewareRegistry.register(store => next => action => {
         break;
     }
 
-    case PARTICIPANT_UPDATED:
+    case PARTICIPANT_UPDATED: {
+        // CRITICAL: Check meetingRole for local participant when role changes - ADMIN should ALWAYS get moderator
+        // This ensures ADMIN gets moderator even if role changes after joining (e.g., server promotes later)
+        const { participant } = action;
+        if (participant && participant.local) {
+            let isAdmin = false;
+            try {
+                isAdmin = (typeof window !== 'undefined')
+                    && window?.localStorage?.getItem('meetingRole') === 'ADMIN';
+            } catch (e) {
+                isAdmin = false;
+            }
+
+            console.log(`[PARTICIPANT_UPDATED] Local participant: role=${participant.role}, meetingRole=${isAdmin ? 'ADMIN' : 'NOT_ADMIN'}`);
+
+            // CRITICAL: Only block moderator role if user is NOT ADMIN
+            // If user is ADMIN, ALWAYS allow moderator role (regardless of when they join or when role changes)
+            if (participant.role === PARTICIPANT_ROLE.MODERATOR) {
+                if (!isAdmin) {
+                    // Block moderator role for non-ADMIN users
+                    console.log(`[PARTICIPANT_UPDATED] ❌ Blocking moderator role change - user is not ADMIN`);
+                    action.participant.role = PARTICIPANT_ROLE.NONE;
+                } else {
+                    // ADMIN user - explicitly allow moderator role
+                    // This ensures ADMIN gets moderator even if they join after other users or role changes later
+                    console.log(`[PARTICIPANT_UPDATED] ✅ ADMIN: Allowing moderator role change`);
+                }
+            } else if (isAdmin && participant.role !== PARTICIPANT_ROLE.MODERATOR) {
+                // ADMIN user but role is not moderator - force moderator role locally
+                console.log(`[PARTICIPANT_UPDATED] ✅ ADMIN: Forcing moderator role (current role is ${participant.role || 'undefined'})`);
+                action.participant.role = PARTICIPANT_ROLE.MODERATOR;
+            }
+            // Ensure ADMIN role enforcement occurs locally even if server delays promotion
+        }
         return _participantJoinedOrUpdated(store, next, action);
+    }
 
     case OVERWRITE_PARTICIPANTS_NAMES: {
         const { participantList } = action;
@@ -876,18 +944,40 @@ function _raiseHandUpdated({ dispatch, getState }: IStore, conference: IJitsiCon
 
     // Display notifications about raised hands.
 
+    // Check if local participant is ADMIN (meetingRole) instead of just moderator
+    let isAdmin = false;
+    try {
+        isAdmin = (typeof window !== 'undefined')
+            && window?.localStorage?.getItem('meetingRole') === 'ADMIN';
+    } catch (e) {
+        isAdmin = false;
+    }
+    
     const isModerator = isLocalParticipantModerator(state);
     const participant = getParticipantById(state, participantId);
     const participantName = getParticipantDisplayName(state, participantId);
+    
+    // Check if meeting mode is enabled
+    const meetingModeEnabled = state['features/meeting-mode']?.enabled || false;
 
     let shouldDisplayAllowAudio = false;
     let shouldDisplayAllowVideo = false;
     let shouldDisplayAllowDesktop = false;
 
-    if (isModerator) {
-        shouldDisplayAllowAudio = isForceMuted(participant, MEDIA_TYPE.AUDIO, state);
-        shouldDisplayAllowVideo = isForceMuted(participant, MEDIA_TYPE.VIDEO, state);
-        shouldDisplayAllowDesktop = isForceMuted(participant, MEDIA_TYPE.DESKTOP, state);
+    // Only show allow buttons to ADMIN (not just moderator)
+    // In meeting mode, only ADMIN can approve unmute requests
+    if (isAdmin) {
+        if (meetingModeEnabled) {
+            // In meeting mode, show allow audio if participant has raised hand
+            shouldDisplayAllowAudio = hasRaisedHand(participant);
+            shouldDisplayAllowVideo = isForceMuted(participant, MEDIA_TYPE.VIDEO, state);
+            shouldDisplayAllowDesktop = isForceMuted(participant, MEDIA_TYPE.DESKTOP, state);
+        } else {
+            // Normal mode: show if participant is force muted
+            shouldDisplayAllowAudio = isForceMuted(participant, MEDIA_TYPE.AUDIO, state);
+            shouldDisplayAllowVideo = isForceMuted(participant, MEDIA_TYPE.VIDEO, state);
+            shouldDisplayAllowDesktop = isForceMuted(participant, MEDIA_TYPE.DESKTOP, state);
+        }
     }
 
     if (shouldDisplayAllowAudio || shouldDisplayAllowVideo || shouldDisplayAllowDesktop) {

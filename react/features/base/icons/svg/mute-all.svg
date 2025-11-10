@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Group of 3 people icons -->
+  <!-- Person 1 (left) -->
+  <circle cx="7" cy="6.5" r="2"/>
+  <path d="M4 14c0-1.1.9-2 2-2h2c1.1 0 2 .9 2 2"/>
+  
+  <!-- Person 2 (center back) -->
+  <circle cx="12" cy="5" r="2"/>
+  <path d="M9 12c0-1.1.9-2 2-2h2c1.1 0 2 .9 2 2"/>
+  
+  <!-- Person 3 (right) -->
+  <circle cx="17" cy="6.5" r="2"/>
+  <path d="M14 14c0-1.1.9-2 2-2h2c1.1 0 2 .9 2 2"/>
+  
+  <!-- Microphone with mute symbol -->
+  <g transform="translate(12, 19)">
+    <!-- Mic capsule -->
+    <rect x="-1.2" y="-3.5" width="2.4" height="4.5" rx="1.2" fill="currentColor" stroke="none"/>
+    <!-- Mic base -->
+    <line x1="0" y1="1" x2="0" y2="2.5" stroke-width="1.8"/>
+    <line x1="-2" y1="2.5" x2="2" y2="2.5" stroke-width="1.8"/>
+    
+    <!-- Diagonal slash through everything -->
+    <line x1="-10" y1="-12" x2="10" y2="5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+  </g>
+</svg>

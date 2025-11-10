@@ -730,6 +730,26 @@ function _updateLocalParticipantInConference({ dispatch, getState }: IStore, nex
         }
 
         if ('role' in participant && participant.role === PARTICIPANT_ROLE.MODERATOR) {
+            // CRITICAL: Double-check meetingRole - ADMIN should ALWAYS get moderator if server assigns it
+            // This ensures ADMIN gets moderator regardless of when they join (first, second, third, etc.)
+            let isAdmin = false;
+            try {
+                isAdmin = (typeof window !== 'undefined')
+                    && window?.localStorage?.getItem('meetingRole') === 'ADMIN';
+            } catch (e) {
+                isAdmin = false;
+            }
+
+            // CRITICAL: Only block moderator role if user is NOT ADMIN
+            // If user is ADMIN, ALWAYS allow moderator role and continue processing
+            if (!isAdmin) {
+                // Block moderator role for non-ADMIN users - this should not happen if middleware works correctly
+                // But adding as a safety check
+                return result;
+            }
+            // ADMIN user - explicitly allow moderator role and continue processing
+            // This ensures ADMIN gets moderator even if they join after other users
+
             const { pendingSubjectChange, subject } = getState()['features/base/conference'];
 
             // When the local user role is updated to moderator and we have a pending subject change

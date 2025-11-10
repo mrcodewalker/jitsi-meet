@@ -105,9 +105,18 @@ class MeetingModeButton extends AbstractButton<IProps> {
  * @returns {IProps}
  */
 function _mapStateToProps(state: IReduxState) {
+    // Check if local participant is ADMIN (meetingRole) - only ADMIN can see and use this button
+    let isAdmin = false;
+    try {
+        isAdmin = (typeof window !== 'undefined')
+            && window?.localStorage?.getItem('meetingRole') === 'ADMIN';
+    } catch (e) {
+        isAdmin = false;
+    }
+    
     return {
         _enabled: state['features/meeting-mode']?.enabled ?? false,
-        _isModerator: isLocalParticipantModerator(state)
+        _isModerator: isAdmin
     };
 }
 

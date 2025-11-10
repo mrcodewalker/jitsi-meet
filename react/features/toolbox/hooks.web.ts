@@ -20,6 +20,7 @@ import { useFeedbackButton } from '../feedback/hooks.web';
 import { setGifMenuVisibility } from '../gifs/actions';
 import { isGifEnabled } from '../gifs/function.any';
 import InviteButton from '../invite/components/add-people-dialog/web/InviteButton';
+import MuteAllButton from './components/web/MuteAllButton';
 import { registerShortcut, unregisterShortcut } from '../keyboard-shortcuts/actions';
 import { useKeyboardShortcutsButton } from '../keyboard-shortcuts/hooks';
 import NoiseSuppressionButton from '../noise-suppression/components/NoiseSuppressionButton';
@@ -123,6 +124,12 @@ const invite = {
     key: 'invite',
     Content: InviteButton,
     group: 2
+};
+
+const muteAll = {
+    key: 'mute-all',
+    Content: MuteAllButton,
+    group: 0
 };
 
 const toggleCamera = {
@@ -302,6 +309,7 @@ export function useToolboxButtons(
 
     const buttons: { [key in ToolbarButton]?: IToolboxButton; } = {
         'meeting-mode': meetingMode,
+        'mute-all': muteAll,
         microphone,
         camera,
         profile,
@@ -310,7 +318,6 @@ export function useToolboxButtons(
         raisehand,
         reactions,
         'participants-pane': participants,
-        invite,
         tileview,
         'toggle-camera': toggleCameraButton,
         videoquality: videoQuality,

@@ -60,11 +60,13 @@ export const sendLeaveRequest = async (): Promise<boolean> => {
 
 /**
  * Clears attendance-related localStorage items
+ * NOTE: Does NOT clear meetLink and token as they are needed for sending messages
  */
 export const clearAttendanceData = () => {
     localStorage.removeItem('attendanceLogId');
-    localStorage.removeItem('meetLink');
-    localStorage.removeItem('token');
+    // DO NOT remove meetLink and token - they are needed for chat messages and other features
+    // localStorage.removeItem('meetLink');
+    // localStorage.removeItem('token');
 };
 
 /**
@@ -211,21 +213,22 @@ export const initializeAttendanceTracking = async (meetLink: string, token: stri
 };
 
 /**
- * Handles automatic leave when user closes tab or navigates away
+ * Handles leave request when user clicks Leave Meeting button
+ * Only sends leave request, does NOT clear meetLink and token (needed for chat messages)
  */
 export const handleAutoLeave = async () => {
     try {
-        // Send leave request first
+        // Send leave request to attendance log API
         await sendLeaveRequest();
         
-        // Clear localStorage
-        clearAttendanceData();
+        // Only clear attendanceLogId, keep meetLink and token
+        localStorage.removeItem('attendanceLogId');
         
-        console.log('Auto-leave completed successfully');
+        console.log('Leave request sent successfully');
     } catch (error) {
-        console.error('Error during auto-leave:', error);
-        // Still clear localStorage even if request fails
-        clearAttendanceData();
+        console.error('Error sending leave request:', error);
+        // Still clear attendanceLogId even if request fails
+        localStorage.removeItem('attendanceLogId');
     }
 };
 

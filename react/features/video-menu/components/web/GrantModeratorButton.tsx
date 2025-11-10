@@ -33,7 +33,7 @@ const GrantModeratorButton = ({
         let isAdmin = false;
         try {
             isAdmin = (typeof window !== 'undefined')
-                && window?.localStorage?.getItem('userRole') === 'ADMIN';
+                && window?.localStorage?.getItem('meetingRole') === 'ADMIN';
         } catch (e) {
             isAdmin = false;
         }

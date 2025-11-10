@@ -29,7 +29,8 @@ import {
     SET_LOCAL_PARTICIPANT_RECORDING_STATUS
 } from './actionTypes';
 import {
-    DISCO_REMOTE_CONTROL_FEATURE
+    DISCO_REMOTE_CONTROL_FEATURE,
+    PARTICIPANT_ROLE
 } from './constants';
 import {
     getLocalParticipant,
@@ -396,6 +397,40 @@ export function participantPresenceChanged(id: string, presence: string) {
 export function participantRoleChanged(id: string, role: string) {
     return (dispatch: IStore['dispatch'], getState: IStore['getState']) => {
         const oldParticipantRole = getParticipantById(getState(), id)?.role;
+        const localParticipant = getLocalParticipant(getState);
+
+        // CRITICAL: Check meetingRole for local participant - ADMIN should ALWAYS get moderator if server assigns it
+        // This ensures ADMIN gets moderator regardless of when they join (first, second, third, etc.)
+        if (localParticipant && localParticipant.id === id) {
+            let isAdmin = false;
+            try {
+                isAdmin = (typeof window !== 'undefined')
+                    && window?.localStorage?.getItem('meetingRole') === 'ADMIN';
+            } catch (e) {
+                isAdmin = false;
+            }
+
+            console.log(`[participantRoleChanged] Local participant: oldRole=${oldParticipantRole}, newRole=${role}, meetingRole=${isAdmin ? 'ADMIN' : 'NOT_ADMIN'}`);
+
+            // CRITICAL: Only block moderator role if user is NOT ADMIN
+            // If user is ADMIN, ALWAYS allow moderator role (regardless of when they join or when role changes)
+            if (role === PARTICIPANT_ROLE.MODERATOR) {
+                if (!isAdmin) {
+                    // Block moderator role for non-ADMIN users
+                    console.log(`[participantRoleChanged] ❌ Blocking moderator role - user is not ADMIN`);
+                    role = PARTICIPANT_ROLE.NONE;
+                } else {
+                    // ADMIN user - explicitly allow moderator role
+                    // This ensures ADMIN gets moderator even if they join after other users
+                    console.log(`[participantRoleChanged] ✅ ADMIN: Allowing moderator role`);
+                }
+            } else if (isAdmin && role !== PARTICIPANT_ROLE.MODERATOR) {
+                // ADMIN user but role is not moderator - force moderator role locally
+                console.log(`[participantRoleChanged] ✅ ADMIN: Forcing moderator role (newRole was ${role || 'undefined'})`);
+                role = PARTICIPANT_ROLE.MODERATOR;
+            }
+            // Ensure ADMIN role enforcement occurs locally even if server delays promotion
+        }
 
         dispatch(participantUpdated({
             id,
