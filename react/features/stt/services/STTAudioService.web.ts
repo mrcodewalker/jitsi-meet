@@ -26,8 +26,10 @@ interface STTResponse {
  * Service to handle STT audio recording and chunking.
  */
 class STTAudioService {
-    private mediaRecorder: MediaRecorder | null = null;
     private audioStream: MediaStream | null = null;
+    private audioContext: AudioContext | null = null;
+    private audioWorkletNode: AudioWorkletNode | null = null;
+    private sourceNode: MediaStreamAudioSourceNode | null = null;
     private chunkStartTime: number = 0;
     private isRecording: boolean = false;
     private isStopping: boolean = false;
@@ -35,6 +37,10 @@ class STTAudioService {
     private store: IStore | null = null;
     private metadata: STTChunkMetadata | null = null;
     private lastChunkSentTime: number = 0; // Track when last chunk was sent
+    private chunkInterval: number | null = null; // Interval for sending chunks
+    private audioBuffers: Float32Array[] = []; // Buffer to accumulate audio data
+    private sampleRate: number = 48000; // Default sample rate
+    private numChannels: number = 1; // Default mono
 
     /**
      * Formats timestamp to "YYYY-MM-DD HH:MM:SS" format.
@@ -54,36 +60,226 @@ class STTAudioService {
     }
 
     /**
-     * Converts audio blob to WAV format.
+     * Creates WAV file header from PCM audio data.
      *
-     * @param {Blob} blob - The audio blob to convert.
-     * @returns {Promise<Blob>}
+     * @param {number} length - Length of PCM data in bytes.
+     * @param {number} sampleRate - Sample rate (e.g., 48000).
+     * @param {number} numChannels - Number of audio channels (1 = mono, 2 = stereo).
+     * @param {number} bitsPerSample - Bits per sample (16 or 32).
+     * @returns {ArrayBuffer} WAV header.
      */
-    private async convertToWAV(blob: Blob): Promise<Blob> {
-        // If already WAV, return as is
-        if (blob.type.includes('wav')) {
-            return blob;
+    private createWAVHeader(length: number, sampleRate: number, numChannels: number, bitsPerSample: number): ArrayBuffer {
+        const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+        const blockAlign = numChannels * (bitsPerSample / 8);
+        const dataSize = length;
+        const fileSize = 36 + dataSize;
+
+        const buffer = new ArrayBuffer(44);
+        const view = new DataView(buffer);
+
+        // RIFF header
+        this.writeString(view, 0, 'RIFF');
+        view.setUint32(4, fileSize, true);
+        this.writeString(view, 8, 'WAVE');
+
+        // fmt chunk
+        this.writeString(view, 12, 'fmt ');
+        view.setUint32(16, 16, true); // fmt chunk size
+        view.setUint16(20, 1, true); // audio format (1 = PCM)
+        view.setUint16(22, numChannels, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, byteRate, true);
+        view.setUint16(32, blockAlign, true);
+        view.setUint16(34, bitsPerSample, true);
+
+        // data chunk
+        this.writeString(view, 36, 'data');
+        view.setUint32(40, dataSize, true);
+
+        return buffer;
+    }
+
+    /**
+     * Writes a string to DataView at specified offset.
+     *
+     * @param {DataView} view - The DataView to write to.
+     * @param {number} offset - The offset to write at.
+     * @param {string} string - The string to write.
+     * @returns {void}
+     */
+    private writeString(view: DataView, offset: number, string: string): void {
+        for (let i = 0; i < string.length; i++) {
+            view.setUint8(offset + i, string.charCodeAt(i));
+        }
+    }
+
+    /**
+     * Converts Float32Array audio data to Int16Array (16-bit PCM).
+     *
+     * @param {Float32Array} float32Array - The float audio data.
+     * @returns {Int16Array} The 16-bit PCM audio data.
+     */
+    private floatTo16BitPCM(float32Array: Float32Array): Int16Array {
+        const int16Array = new Int16Array(float32Array.length);
+        for (let i = 0; i < float32Array.length; i++) {
+            // Clamp value to [-1, 1] range and convert to 16-bit integer
+            const s = Math.max(-1, Math.min(1, float32Array[i]));
+            int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        }
+        return int16Array;
+    }
+
+    /**
+     * Converts Float32Array audio data to WAV blob.
+     *
+     * @param {Float32Array[]} audioBuffers - Array of Float32Array audio data (one per channel).
+     * @param {number} sampleRate - Sample rate.
+     * @returns {Blob} WAV format blob.
+     */
+    private convertBuffersToWAV(audioBuffers: Float32Array[], sampleRate: number): Blob {
+        const numChannels = audioBuffers.length;
+        const length = audioBuffers[0].length;
+        
+        // Convert to 16-bit PCM
+        let pcmData: Int16Array;
+        
+        if (numChannels === 1) {
+            // Mono: just convert the single channel
+            pcmData = this.floatTo16BitPCM(audioBuffers[0]);
+        } else {
+            // Stereo: interleave left and right channels
+            pcmData = new Int16Array(length * numChannels);
+            
+            for (let i = 0; i < length; i++) {
+                // Convert float samples to 16-bit PCM and interleave
+                const leftSample = Math.max(-1, Math.min(1, audioBuffers[0][i]));
+                const rightSample = Math.max(-1, Math.min(1, audioBuffers[1][i]));
+                pcmData[i * 2] = leftSample < 0 ? leftSample * 0x8000 : leftSample * 0x7FFF;
+                pcmData[i * 2 + 1] = rightSample < 0 ? rightSample * 0x8000 : rightSample * 0x7FFF;
+            }
+        }
+        
+        // Create WAV header
+        const wavHeader = this.createWAVHeader(
+            pcmData.length * 2, // length in bytes (Int16 = 2 bytes per sample)
+            sampleRate,
+            numChannels,
+            16 // 16-bit PCM
+        );
+        
+        // Convert Int16Array to Uint8Array for Blob compatibility
+        const pcmBuffer = new ArrayBuffer(pcmData.length * 2);
+        const pcmView = new Int16Array(pcmBuffer);
+        pcmView.set(pcmData);
+        const pcmUint8 = new Uint8Array(pcmBuffer);
+        
+        // Combine header and PCM data
+        return new Blob([wavHeader, pcmUint8], { type: 'audio/wav' });
+    }
+
+    /**
+     * Processes accumulated audio buffers and sends as WAV chunk.
+     *
+     * @returns {Promise<void>}
+     */
+    private async processAndSendChunk(): Promise<void> {
+        if (!this.metadata || this.audioBuffers.length === 0) {
+            return;
         }
 
-        // For now, return the blob as is since MediaRecorder typically produces webm/opus
-        // In production, you might want to use a library like lamejs or opus-decoder
-        // to convert to WAV, but for now we'll let the server handle the conversion
-        return blob;
+        // Get the first buffer to determine length
+        const length = this.audioBuffers[0].length;
+        
+        // Only send if we have meaningful data (at least 1 second of audio)
+        const minSamples = this.sampleRate; // 1 second
+        if (length < minSamples) {
+            return;
+        }
+
+        // Create a copy of buffers for processing
+        const buffersToProcess = this.audioBuffers.map(buffer => buffer.slice());
+        
+        // Clear buffers for next chunk
+        this.audioBuffers = this.audioBuffers.map(() => new Float32Array(0));
+
+        // Convert to WAV
+        const wavBlob = this.convertBuffersToWAV(buffersToProcess, this.sampleRate);
+
+        // Create metadata with chunk start timestamp
+        const chunkMetadata: STTChunkMetadata = {
+            ...this.metadata,
+            ts: this.formatTimestamp(new Date(this.chunkStartTime))
+        };
+
+        logger.info('Processing audio chunk', {
+            wav_size: wavBlob.size,
+            sample_rate: this.sampleRate,
+            channels: this.numChannels,
+            duration: length / this.sampleRate,
+            chunkStartTime: this.formatTimestamp(new Date(this.chunkStartTime))
+        });
+
+        try {
+            await this.sendChunkToAPI(wavBlob, chunkMetadata);
+            
+            // Update tracking times
+            this.lastChunkSentTime = Date.now();
+            this.chunkStartTime = Date.now();
+        } catch (error) {
+            logger.error('Failed to send STT chunk', error);
+        }
     }
+
+    /**
+     * Handles audio data from ScriptProcessorNode.
+     *
+     * @param {AudioProcessingEvent} event - The audio processing event.
+     * @returns {void}
+     */
+    private handleAudioProcess = (event: AudioProcessingEvent) => {
+        if (!this.isRecording) {
+            return;
+        }
+
+        const inputBuffer = event.inputBuffer;
+        const numberOfChannels = inputBuffer.numberOfChannels;
+        const bufferLength = inputBuffer.length;
+
+        // Update numChannels from actual audio data (more accurate than track settings)
+        if (this.numChannels !== numberOfChannels) {
+            this.numChannels = numberOfChannels;
+            // Reset buffers if channel count changed
+            this.audioBuffers = [];
+        }
+
+        // Initialize buffers if needed
+        if (this.audioBuffers.length === 0) {
+            this.audioBuffers = Array.from({ length: numberOfChannels }, () => new Float32Array(0));
+        }
+
+        // Append new audio data to buffers
+        for (let channel = 0; channel < numberOfChannels; channel++) {
+            const inputData = inputBuffer.getChannelData(channel);
+            const currentBuffer = this.audioBuffers[channel];
+            const newBuffer = new Float32Array(currentBuffer.length + bufferLength);
+            newBuffer.set(currentBuffer);
+            newBuffer.set(inputData, currentBuffer.length);
+            this.audioBuffers[channel] = newBuffer;
+        }
+    };
 
     /**
      * Sends audio chunk to STT API.
      *
-     * @param {Blob} audioBlob - The audio chunk to send.
+     * @param {Blob} audioBlob - The audio chunk to send (should already be WAV).
      * @param {STTChunkMetadata} metadata - The metadata for the chunk.
      * @returns {Promise<STTResponse>}
      */
     private async sendChunkToAPI(audioBlob: Blob, metadata: STTChunkMetadata): Promise<STTResponse> {
         const formData = new FormData();
         
-        // Convert to WAV if needed
-        const wavBlob = await this.convertToWAV(audioBlob);
-        formData.append('file', wavBlob, 'audio.wav');
+        // Audio blob should already be WAV format
+        formData.append('file', audioBlob, 'audio.wav');
         formData.append('meeting_id', metadata.meeting_id);
         formData.append('user_id', metadata.user_id);
         
@@ -107,7 +303,8 @@ class STTAudioService {
             role: metadata.role,
             ts: metadata.ts,
             file_size: audioBlob.size,
-            file_type: audioBlob.type
+            file_type: audioBlob.type,
+            is_wav: audioBlob.type === 'audio/wav'
         });
 
         try {
@@ -141,71 +338,6 @@ class STTAudioService {
         }
     }
 
-    /**
-     * Handles data available event from MediaRecorder.
-     * This is called automatically every CHUNK_DURATION_MS when using timeslice.
-     * Also called when requestData() is called or when recording stops.
-     *
-     * @param {BlobEvent} event - The data available event.
-     * @returns {void}
-     */
-    private handleDataAvailable = async (event: BlobEvent) => {
-        if (!event.data || event.data.size === 0 || !this.metadata) {
-            return;
-        }
-
-        // If we're stopping and we've already processed the final chunk, ignore further events
-        if (this.isStopping && this.processedFinalChunk) {
-            return;
-        }
-
-        // Only send if the chunk has meaningful data (at least 1 second of audio)
-        if (event.data.size < 1000) {
-            return;
-        }
-
-        // Calculate time since last chunk was sent
-        const timeSinceLastChunk = this.lastChunkSentTime > 0 
-            ? Date.now() - this.lastChunkSentTime 
-            : Date.now() - this.chunkStartTime;
-
-        // If this is a regular 30s chunk (from timeslice), use chunkStartTime
-        // If this is a final chunk when stopping, use the time since last chunk
-        const isRegularChunk = timeSinceLastChunk >= CHUNK_DURATION_MS - 1000; // Allow 1s tolerance
-
-        // Create a copy of metadata with the chunk start timestamp
-        const chunkMetadata: STTChunkMetadata = {
-            ...this.metadata,
-            ts: this.formatTimestamp(new Date(this.chunkStartTime))
-        };
-
-        logger.info('Handling audio chunk', {
-            size: event.data.size,
-            isRegularChunk,
-            timeSinceLastChunk: Math.round(timeSinceLastChunk / 1000) + 's',
-            chunkStartTime: this.formatTimestamp(new Date(this.chunkStartTime))
-        });
-
-        try {
-            await this.sendChunkToAPI(event.data, chunkMetadata);
-            
-            // Update tracking times
-            this.lastChunkSentTime = Date.now();
-            // If this was during stopping, mark that we've processed the final chunk
-            if (this.isStopping) {
-                this.processedFinalChunk = true;
-            }
-            // Update chunk start time for next chunk (if continuing)
-            if (isRegularChunk) {
-                this.chunkStartTime = Date.now();
-            } else {
-                // This was a final chunk, chunkStartTime will be reset in cleanup
-                this.chunkStartTime = this.lastChunkSentTime;
-            }
-        } catch (error) {
-            logger.error('Failed to send STT chunk', error);
-        }
-    };
 
     /**
      * Gets meeting response from localStorage.
@@ -296,33 +428,59 @@ class STTAudioService {
             role
         };
 
-        // Initialize MediaRecorder
-        const mimeType = MediaRecorder.isTypeSupported('audio/webm') 
-            ? 'audio/webm' 
-            : MediaRecorder.isTypeSupported('audio/ogg') 
-                ? 'audio/ogg' 
-                : 'audio/webm'; // fallback
-
         try {
-            this.mediaRecorder = new MediaRecorder(this.audioStream, {
-                mimeType,
-                audioBitsPerSecond: 128000
-            });
-
-            this.mediaRecorder.ondataavailable = this.handleDataAvailable;
-
-            // Start recording with timeslice to automatically get chunks every 30 seconds
-            // When timeslice is specified, dataavailable event fires automatically
-            // Set chunkStartTime to current time - this is when user started speaking
+            // Create AudioContext for direct audio processing
+            this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+            this.sampleRate = this.audioContext.sampleRate;
+            
+            // Create source node from audio stream
+            this.sourceNode = this.audioContext.createMediaStreamSource(this.audioStream);
+            
+            // Detect number of channels from audio stream
+            // Most audio streams are mono, but we'll support stereo too
+            const audioTrack = this.audioStream.getAudioTracks()[0];
+            const channelCount = audioTrack.getSettings().channelCount || 1;
+            this.numChannels = Math.min(channelCount, 2); // Limit to mono or stereo
+            
+            // Use ScriptProcessorNode for audio processing (deprecated but widely supported)
+            // Buffer size of 4096 provides good balance between latency and performance
+            const bufferSize = 4096;
+            const scriptProcessor = this.audioContext.createScriptProcessor(bufferSize, this.numChannels, this.numChannels);
+            
+            scriptProcessor.onaudioprocess = this.handleAudioProcess;
+            
+            // Create a silent destination to avoid playing audio
+            // ScriptProcessorNode needs to be connected to keep processing
+            const silentDestination = this.audioContext.createGain();
+            silentDestination.gain.value = 0; // Mute output
+            
+            // Connect source to script processor to silent destination
+            this.sourceNode.connect(scriptProcessor);
+            scriptProcessor.connect(silentDestination);
+            silentDestination.connect(this.audioContext.destination);
+            
+            // Store reference for cleanup
+            this.audioWorkletNode = scriptProcessor as any;
+            
+            // Initialize audio buffers
+            this.audioBuffers = [];
+            
+            // Set chunkStartTime to current time
             this.chunkStartTime = Date.now();
             this.lastChunkSentTime = 0;
-            this.mediaRecorder.start(CHUNK_DURATION_MS);
+            
+            // Start interval to send chunks every 30 seconds
+            this.chunkInterval = window.setInterval(() => {
+                this.processAndSendChunk();
+            }, CHUNK_DURATION_MS);
+            
             this.isRecording = true;
 
             logger.info('STT recording started', {
                 meeting_id: this.metadata.meeting_id,
                 user_id: this.metadata.user_id,
                 role: this.metadata.role,
+                sample_rate: this.sampleRate,
                 chunk_start_time: this.formatTimestamp(new Date(this.chunkStartTime))
             });
         } catch (error) {
@@ -342,34 +500,17 @@ class STTAudioService {
             return;
         }
 
-        // Mark stopping and rely on the final dataavailable fired by stop()
+        // Mark stopping
         this.isStopping = true;
-        this.processedFinalChunk = false;
 
-        // Stop the MediaRecorder
-        if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
-            // Stop will trigger a final dataavailable event with remaining data
-            this.mediaRecorder.stop();
-            
-            // Wait for the stop event to ensure all data is available
-            await new Promise<void>((resolve) => {
-                if (this.mediaRecorder) {
-                    const onStop = () => {
-                        this.mediaRecorder?.removeEventListener('stop', onStop);
-                        resolve();
-                    };
-                    this.mediaRecorder.addEventListener('stop', onStop);
-                    
-                    // Timeout after 2 seconds
-                    setTimeout(() => {
-                        this.mediaRecorder?.removeEventListener('stop', onStop);
-                        resolve();
-                    }, 2000);
-                } else {
-                    resolve();
-                }
-            });
+        // Clear interval
+        if (this.chunkInterval !== null) {
+            clearInterval(this.chunkInterval);
+            this.chunkInterval = null;
         }
+
+        // Process and send final chunk with remaining audio data
+        await this.processAndSendChunk();
 
         this.cleanup();
         logger.info('STT recording stopped');
@@ -381,16 +522,37 @@ class STTAudioService {
      * @returns {void}
      */
     private cleanup(): void {
-        if (this.mediaRecorder) {
-            this.mediaRecorder.ondataavailable = null;
-            if (this.mediaRecorder.state !== 'inactive') {
-                try {
-                    this.mediaRecorder.stop();
-                } catch (e) {
-                    // Ignore errors when stopping
-                }
+        // Clear interval
+        if (this.chunkInterval !== null) {
+            clearInterval(this.chunkInterval);
+            this.chunkInterval = null;
+        }
+
+        // Disconnect audio nodes
+        if (this.audioWorkletNode) {
+            try {
+                this.audioWorkletNode.disconnect();
+            } catch (e) {
+                // Ignore errors
             }
-            this.mediaRecorder = null;
+            this.audioWorkletNode = null;
+        }
+
+        if (this.sourceNode) {
+            try {
+                this.sourceNode.disconnect();
+            } catch (e) {
+                // Ignore errors
+            }
+            this.sourceNode = null;
+        }
+
+        // Close audio context
+        if (this.audioContext) {
+            this.audioContext.close().catch(() => {
+                // Ignore errors when closing
+            });
+            this.audioContext = null;
         }
 
         if (this.audioStream) {
@@ -405,6 +567,9 @@ class STTAudioService {
         this.metadata = null;
         this.chunkStartTime = 0;
         this.lastChunkSentTime = 0;
+        this.audioBuffers = [];
+        this.sampleRate = 48000;
+        this.numChannels = 1;
     }
 
     /**
