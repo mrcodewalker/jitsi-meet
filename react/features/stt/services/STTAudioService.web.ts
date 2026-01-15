@@ -5,7 +5,7 @@ import { getLocalParticipant } from '../../base/participants/functions';
 import logger from '../logger';
 
 const STT_API_URL = 'https://api.kma-legend.fun/api/stt_input';
-const CHUNK_DURATION_MS = 30000; // 30 seconds
+const CHUNK_DURATION_MS = 5000; // 30 seconds
 
 interface STTChunkMetadata {
     meeting_id: string;
@@ -139,17 +139,17 @@ class STTAudioService {
     private convertBuffersToWAV(audioBuffers: Float32Array[], sampleRate: number): Blob {
         const numChannels = audioBuffers.length;
         const length = audioBuffers[0].length;
-        
+
         // Convert to 16-bit PCM
         let pcmData: Int16Array;
-        
+
         if (numChannels === 1) {
             // Mono: just convert the single channel
             pcmData = this.floatTo16BitPCM(audioBuffers[0]);
         } else {
             // Stereo: interleave left and right channels
             pcmData = new Int16Array(length * numChannels);
-            
+
             for (let i = 0; i < length; i++) {
                 // Convert float samples to 16-bit PCM and interleave
                 const leftSample = Math.max(-1, Math.min(1, audioBuffers[0][i]));
@@ -158,7 +158,7 @@ class STTAudioService {
                 pcmData[i * 2 + 1] = rightSample < 0 ? rightSample * 0x8000 : rightSample * 0x7FFF;
             }
         }
-        
+
         // Create WAV header
         const wavHeader = this.createWAVHeader(
             pcmData.length * 2, // length in bytes (Int16 = 2 bytes per sample)
@@ -166,13 +166,13 @@ class STTAudioService {
             numChannels,
             16 // 16-bit PCM
         );
-        
+
         // Convert Int16Array to Uint8Array for Blob compatibility
         const pcmBuffer = new ArrayBuffer(pcmData.length * 2);
         const pcmView = new Int16Array(pcmBuffer);
         pcmView.set(pcmData);
         const pcmUint8 = new Uint8Array(pcmBuffer);
-        
+
         // Combine header and PCM data
         return new Blob([wavHeader, pcmUint8], { type: 'audio/wav' });
     }
@@ -189,7 +189,7 @@ class STTAudioService {
 
         // Get the first buffer to determine length
         const length = this.audioBuffers[0].length;
-        
+
         // Only send if we have meaningful data (at least 1 second of audio)
         const minSamples = this.sampleRate; // 1 second
         if (length < minSamples) {
@@ -198,7 +198,7 @@ class STTAudioService {
 
         // Create a copy of buffers for processing
         const buffersToProcess = this.audioBuffers.map(buffer => buffer.slice());
-        
+
         // Clear buffers for next chunk
         this.audioBuffers = this.audioBuffers.map(() => new Float32Array(0));
 
@@ -221,7 +221,7 @@ class STTAudioService {
 
         try {
             await this.sendChunkToAPI(wavBlob, chunkMetadata);
-            
+
             // Update tracking times
             this.lastChunkSentTime = Date.now();
             this.chunkStartTime = Date.now();
@@ -277,20 +277,20 @@ class STTAudioService {
      */
     private async sendChunkToAPI(audioBlob: Blob, metadata: STTChunkMetadata): Promise<STTResponse> {
         const formData = new FormData();
-        
+
         // Audio blob should already be WAV format
         formData.append('file', audioBlob, 'audio.wav');
         formData.append('meeting_id', metadata.meeting_id);
         formData.append('user_id', metadata.user_id);
-        
+
         if (metadata.full_name) {
             formData.append('full_name', metadata.full_name);
         }
-        
+
         if (metadata.role) {
             formData.append('role', metadata.role);
         }
-        
+
         if (metadata.ts) {
             formData.append('ts', metadata.ts);
         }
@@ -319,13 +319,13 @@ class STTAudioService {
             }
 
             const result: STTResponse = await response.json();
-            logger.info('STT chunk sent successfully', { 
+            logger.info('STT chunk sent successfully', {
                 job_id: result.job_id,
                 meeting_id: result.meeting_id,
                 user_id: result.user_id,
                 status: result.status
             });
-            
+
             return result;
         } catch (error) {
             logger.error('Failed to send STT chunk', {
@@ -346,10 +346,10 @@ class STTAudioService {
      */
     private getMeetingResponseFromStorage(): any | null {
         try {
-            const meetingResponseStr = typeof window !== 'undefined' 
-                ? window.localStorage.getItem('meetingResponse') 
+            const meetingResponseStr = typeof window !== 'undefined'
+                ? window.localStorage.getItem('meetingResponse')
                 : null;
-            
+
             if (!meetingResponseStr) {
                 return null;
             }
@@ -393,7 +393,7 @@ class STTAudioService {
 
         // Get meeting response from localStorage
         const meetingResponse = this.getMeetingResponseFromStorage();
-        
+
         // Extract metadata from meetingResponse or fallback to participant data
         let user_id: string;
         let full_name: string | undefined;
@@ -415,7 +415,7 @@ class STTAudioService {
 
         this.store = store;
         this.audioStream = new MediaStream([mediaStreamTrack]);
-        
+
         // Get metadata
         const meetingId = meetingResponse?.meeting?.id
             ? String(meetingResponse.meeting.id)
@@ -432,48 +432,48 @@ class STTAudioService {
             // Create AudioContext for direct audio processing
             this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
             this.sampleRate = this.audioContext.sampleRate;
-            
+
             // Create source node from audio stream
             this.sourceNode = this.audioContext.createMediaStreamSource(this.audioStream);
-            
+
             // Detect number of channels from audio stream
             // Most audio streams are mono, but we'll support stereo too
             const audioTrack = this.audioStream.getAudioTracks()[0];
             const channelCount = audioTrack.getSettings().channelCount || 1;
             this.numChannels = Math.min(channelCount, 2); // Limit to mono or stereo
-            
+
             // Use ScriptProcessorNode for audio processing (deprecated but widely supported)
             // Buffer size of 4096 provides good balance between latency and performance
             const bufferSize = 4096;
             const scriptProcessor = this.audioContext.createScriptProcessor(bufferSize, this.numChannels, this.numChannels);
-            
+
             scriptProcessor.onaudioprocess = this.handleAudioProcess;
-            
+
             // Create a silent destination to avoid playing audio
             // ScriptProcessorNode needs to be connected to keep processing
             const silentDestination = this.audioContext.createGain();
             silentDestination.gain.value = 0; // Mute output
-            
+
             // Connect source to script processor to silent destination
             this.sourceNode.connect(scriptProcessor);
             scriptProcessor.connect(silentDestination);
             silentDestination.connect(this.audioContext.destination);
-            
+
             // Store reference for cleanup
             this.audioWorkletNode = scriptProcessor as any;
-            
+
             // Initialize audio buffers
             this.audioBuffers = [];
-            
+
             // Set chunkStartTime to current time
             this.chunkStartTime = Date.now();
             this.lastChunkSentTime = 0;
-            
+
             // Start interval to send chunks every 30 seconds
             this.chunkInterval = window.setInterval(() => {
                 this.processAndSendChunk();
             }, CHUNK_DURATION_MS);
-            
+
             this.isRecording = true;
 
             logger.info('STT recording started', {
