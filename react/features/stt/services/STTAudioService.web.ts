@@ -5,7 +5,7 @@ import { getLocalParticipant } from '../../base/participants/functions';
 import logger from '../logger';
 
 const STT_API_URL = 'https://api.kma-legend.fun/api/stt_input';
-const CHUNK_DURATION_MS = 5000; // 30 seconds
+const CHUNK_DURATION_MS = 5000; // 5 seconds
 
 interface STTChunkMetadata {
     meeting_id: string;
@@ -38,7 +38,7 @@ class STTAudioService {
     private metadata: STTChunkMetadata | null = null;
     private lastChunkSentTime: number = 0; // Track when last chunk was sent
     private chunkInterval: number | null = null; // Interval for sending chunks
-    private audioBuffers: Float32Array[] = []; // Buffer to accumulate audio data
+    private audioChunks: Float32Array[][] = []; // Buffer to accumulate audio chunks
     private sampleRate: number = 48000; // Default sample rate
     private numChannels: number = 1; // Default mono
 
@@ -183,24 +183,32 @@ class STTAudioService {
      * @returns {Promise<void>}
      */
     private async processAndSendChunk(): Promise<void> {
-        if (!this.metadata || this.audioBuffers.length === 0) {
+        if (!this.metadata || this.audioChunks.length === 0) {
             return;
         }
 
-        // Get the first buffer to determine length
-        const length = this.audioBuffers[0].length;
+        // Calculate total length
+        const totalLength = this.audioChunks[0]?.reduce((acc, chunk) => acc + chunk.length, 0) || 0;
 
         // Only send if we have meaningful data (at least 1 second of audio)
         const minSamples = this.sampleRate; // 1 second
-        if (length < minSamples) {
+        if (totalLength < minSamples) {
             return;
         }
 
-        // Create a copy of buffers for processing
-        const buffersToProcess = this.audioBuffers.map(buffer => buffer.slice());
+        // Flatten chunks into single buffers
+        const buffersToProcess = this.audioChunks.map(chunks => {
+            const result = new Float32Array(totalLength);
+            let offset = 0;
+            for (const chunk of chunks) {
+                result.set(chunk, offset);
+                offset += chunk.length;
+            }
+            return result;
+        });
 
-        // Clear buffers for next chunk
-        this.audioBuffers = this.audioBuffers.map(() => new Float32Array(0));
+        // Clear chunks for next interval
+        this.audioChunks = this.audioChunks.map(() => []);
 
         // Convert to WAV
         const wavBlob = this.convertBuffersToWAV(buffersToProcess, this.sampleRate);
@@ -243,28 +251,24 @@ class STTAudioService {
 
         const inputBuffer = event.inputBuffer;
         const numberOfChannels = inputBuffer.numberOfChannels;
-        const bufferLength = inputBuffer.length;
 
         // Update numChannels from actual audio data (more accurate than track settings)
         if (this.numChannels !== numberOfChannels) {
             this.numChannels = numberOfChannels;
             // Reset buffers if channel count changed
-            this.audioBuffers = [];
+            this.audioChunks = [];
         }
 
         // Initialize buffers if needed
-        if (this.audioBuffers.length === 0) {
-            this.audioBuffers = Array.from({ length: numberOfChannels }, () => new Float32Array(0));
+        if (this.audioChunks.length === 0) {
+            this.audioChunks = Array.from({ length: numberOfChannels }, () => []);
         }
 
         // Append new audio data to buffers
         for (let channel = 0; channel < numberOfChannels; channel++) {
             const inputData = inputBuffer.getChannelData(channel);
-            const currentBuffer = this.audioBuffers[channel];
-            const newBuffer = new Float32Array(currentBuffer.length + bufferLength);
-            newBuffer.set(currentBuffer);
-            newBuffer.set(inputData, currentBuffer.length);
-            this.audioBuffers[channel] = newBuffer;
+            // Copy data because the browser reuses the input buffer
+            this.audioChunks[channel].push(inputData.slice());
         }
     };
 
@@ -463,7 +467,7 @@ class STTAudioService {
             this.audioWorkletNode = scriptProcessor as any;
 
             // Initialize audio buffers
-            this.audioBuffers = [];
+            this.audioChunks = [];
 
             // Set chunkStartTime to current time
             this.chunkStartTime = Date.now();
@@ -567,7 +571,7 @@ class STTAudioService {
         this.metadata = null;
         this.chunkStartTime = 0;
         this.lastChunkSentTime = 0;
-        this.audioBuffers = [];
+        this.audioChunks = [];
         this.sampleRate = 48000;
         this.numChannels = 1;
     }
